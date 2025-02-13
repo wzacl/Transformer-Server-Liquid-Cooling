@@ -14,7 +14,6 @@ import torch.nn as nn
 from collections import deque
 import math
 from sklearn.preprocessing import MinMaxScaler
-import pickle  # 用于加载保存的scaler
 
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
@@ -44,9 +43,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = torch.load(model_path, map_location=device)
 model.eval()
 
-# 加載訓練好的scaler
-with open(scaler_path, 'rb') as f:
-    scaler = pickle.load(f)
+# 使用joblib加載訓練好的scaler
+scaler = joblib.load(scaler_path)
 
 # 位置編碼器類
 class PositionalEncoding(nn.Module):
