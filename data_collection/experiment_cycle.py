@@ -1,8 +1,14 @@
 '''''
-本程式碼主要用於資料蒐集，本研究中的晶片瓦數對應的電源供應器參數設置如下
+本程式碼主要用於資料蒐集
+
+本研究中的晶片瓦數對應的電源供應器參數設置如下
 1KW：220V_8A
 1.5KW：285V_8A
 1.9KW：332V_8A
+
+對應的風扇與泵最低轉速如下
+泵：40% duty cycle
+風扇：30% duty cycle
 '''''
 import time
 import sys
@@ -39,10 +45,15 @@ fan1 = multi_ctrl.multichannel_PWMController(port=fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(port=fan2_port)
 pump = ctrl.XYKPWMController(port=pump_port)
 
+# 設置初始轉速
+pump_duty=40
+pump.set_duty_cycle(pump_duty)
+fan_duty=30
+fan1.set_all_duty_cycle(fan_duty)
+fan2.set_all_duty_cycle(fan_duty)
+
 # 設置ADAM控制器
-adam.setup_directories()
-adam.start_data_buffer()
-adam.start_adam_controller()
+adam.start_adam()
 
 def read_settings(file_path):
     settings = []

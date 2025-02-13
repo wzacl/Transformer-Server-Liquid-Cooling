@@ -1,8 +1,13 @@
 '''''
-本程式碼主要用於隨機測試資料蒐集，本研究中的晶片瓦數對應的電源供應器參數設置如下
+本程式碼主要用於隨機測試資料蒐集
+本研究中的晶片瓦數對應的電源供應器參數設置如下
 1KW：220V_8A
 1.5KW：285V_8A
 1.9KW：332V_8A
+
+對應的風扇與泵最低轉速如下
+泵：40% duty cycle
+風扇：30% duty cycle
 '''''
 import time
 import sys
@@ -22,12 +27,13 @@ adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA5'
 fan2_port = '/dev/ttyAMA4'
 pump_port = '/dev/ttyAMA3'
-#設置實驗資料放置的資料夾
+#設置實驗資料放置的資料夾(不要動)
 exp_name = '/home/inventec/Desktop/2KWCDU/data_collection/Model_testing_data'
-#設置實驗資料檔案名稱
+#設置實驗資料檔案名稱(可自行更動)
 exp_var = 'Testingdata_GPU1.5W(218V_8A)_5%_1'
-
+#自訂資料表頭
 custom_headers = ['time','T_GPU','T_heater','T_CDU_in','T_CDU_out','T_env','T_air_in','T_air_out','TMP8','fan_duty','pump_duty','GPU_Watt(KW)']
+#設置實驗參數變動設置(不要動)
 experiment_set='/home/inventec/Desktop/2KWCDU/data_collection/experiment_setting_random.csv'
 # 創建控制器物件
 adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=adam_port, csv_headers=custom_headers)
@@ -35,10 +41,15 @@ fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
 
+# 設置初始轉速
+pump_duty=40
+pump.set_duty_cycle(pump_duty)
+fan_duty=30
+fan1.set_all_duty_cycle(fan_duty)
+fan2.set_all_duty_cycle(fan_duty)
+
 # 設置ADAM控制器
-adam.setup_directories()
-adam.start_data_buffer()
-adam.start_adam_controller()
+adam.start_adam()
 
 def read_settings(file_path):
     settings = []

@@ -12,6 +12,7 @@ import csv
 import numpy as np
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
 #from tabulate import tabulate
 class DataAcquisition:
     def __init__(self,exp_var,exp_name='./experiment', port='/dev/ttyUSB0', buffer_size=8, data_update_rate=1, csv_headers=None):
@@ -134,9 +135,32 @@ class DataAcquisition:
     def update_else_data(self, data):
         with self.buffer_lock:
             self.buffer = np.append(self.buffer, data)
+
+    def plot_experiment_results(self):
+        df = pd.read_csv(self.exp_name + '/' + self.exp_var + '.csv')
+        # 丟棄前兩秒的資料
+        df = df.iloc[2:].reset_index(drop=True)
+        plt.figure(figsize=(10,6))
+        plt.plot(df['T_CDU_out'], label='CDU出水溫度')
+        plt.plot(df['T_GPU'], label='GPU溫度') 
+        plt.plot(df['fan_duty'], label='風扇轉速') 
+        plt.plot(df['pump_duty'], label='泵轉速')
+        plt.xlabel('時間(s)')
+        plt.ylabel('溫度(°C)')
+        plt.title('實驗溫度響應圖')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(exp_name + '/' + exp_var + '.png')
+        plt.show()
+        print("實驗結果圖已保存到" + exp_name + '/' + exp_var + '.png')
+    def start_adam(self):
+        self.setup_directories()
+        self.start_data_buffer()
+        self.start_adam_controller()
+
             
 if __name__ == "__main__":
-    exp_name = '2024.8.30測試222222'  # 實驗存取資料夾
+    exp_name = '2024.8.30測試'  # 實驗存取資料夾
     exp_var  = 'test1128'  #實驗變數
     data_acquisition = DataAcquisition(exp_name=exp_name,exp_var=exp_var,port='/dev/ttyUSB0')
 

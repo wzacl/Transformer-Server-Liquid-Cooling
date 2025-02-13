@@ -1,3 +1,5 @@
+
+
 import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
@@ -12,10 +14,11 @@ adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
-
+#資料儲存位置(不要動)
 exp_name = '/home/inventec/Desktop/2KWCDU/data_collection/PID_pump'
+#實驗檔案名稱(可自行更動)
 exp_var = '250212PID-pump'
-
+#自訂資料表頭
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty','T_w_delta', 'GPU_Watt']
 
 # 創建控制器物件
@@ -24,15 +27,15 @@ fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
 
-# 設置ADAM控制器
-adam.setup_directories()
-adam.start_data_buffer()
-adam.start_adam_controller()
-
-# 設置風扇初始轉速
-fan_duty=80
+# 設置初始轉速
+pump_duty=40
+pump.set_duty_cycle(pump_duty)
+fan_duty=30
 fan1.set_all_duty_cycle(fan_duty)
 fan2.set_all_duty_cycle(fan_duty)
+# 設置ADAM控制器
+adam.start_adam()
+
 
 try:
     counter = 0
@@ -71,8 +74,7 @@ except KeyboardInterrupt:
     print("實驗被用戶中斷")
 except Exception as e:
     print(f"發生錯誤: {e}")
-except KeyboardInterrupt:
-    print("\n實驗被用戶中斷")
+
 finally:
     adam.stop_threading('buffer')
     adam.stop_threading('adam')
@@ -81,3 +83,5 @@ finally:
     fan2.set_all_duty_cycle(40)
     pump.set_duty_cycle(100)
     print("實驗結束，所有裝置恢復到安全狀態。")
+    # 繪製實驗結果圖
+    adam.plot_experiment_results()
