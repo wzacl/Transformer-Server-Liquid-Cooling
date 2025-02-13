@@ -1,7 +1,7 @@
 '''''
-PID_fan.py
+GB_PID_pump.py
 
-PID控制器，控制風扇轉速
+GB_PID控制器，利用Guaranteed Bounded PID控制泵轉速
 
 本研究中的晶片瓦數對應的電源供應器參數設置如下
 1KW：220V_8A
@@ -11,9 +11,7 @@ PID控制器，控制風扇轉速
 對應的風扇與泵最低轉速如下
 泵：40% duty cycle
 風扇：30% duty cycle
-
 '''''
-
 import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
@@ -23,19 +21,17 @@ import pwmcontroller as ctrl
 import multi_channel_pwmcontroller as multi_ctrl
 from simple_pid import PID
 
-
-
 # 初始化控制器
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 #資料儲存位置(不要動)
-exp_name = '/home/inventec/Desktop/2KWCDU/data_collection/PID_fan'
+exp_name = '/home/inventec/Desktop/2KWCDU/data_collection/PID_pump'
 #實驗檔案名稱(可自行更動)
-exp_var = '250212PID-fan'
+exp_var = '250212PID-pump'
 #自訂資料表頭
-custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty','T_w_delta', 'GPU_Watt(KW)']
+custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty','T_w_delta', 'GPU_Watt']
 
 # 創建控制器物件
 adam = ADAMScontroller.DataAcquisition(exp_name, exp_var, port=adam_port, csv_headers=custom_headers)
@@ -50,20 +46,30 @@ fan_duty=30
 fan1.set_all_duty_cycle(fan_duty)
 fan2.set_all_duty_cycle(fan_duty)
 
-#啟動ADAM控制器
+#設置GB_PID控制器範圍
+Guaranteed_Bounded_PID_range =0.5
+# 設置ADAM控制器
 adam.start_adam()
+
+def GB_PID(T_real,target,GB=Guaranteed_Bounded_PID_range):
+    delta = abs(T_real - target)
+    if delta <= GB:
+        return 0
+    elif  delta > GB:
+        return T_real
+    else:
+        print("請輸入正確的GB_PID控制器範圍")
 
 
 try:
     counter = 0
     flag = True
     delta = 0
-    target = 30
+    target = 68
     reference = target + delta
     sample_time = 2  # 定義取樣時間
-    controller = PID(Kp=-6, Ki=-0.08, Kd=0, setpoint=reference, output_limits=(30, 100), sample_time=sample_time)
+    controller = PID(Kp=-10, Ki=-0.8, Kd=0, setpoint=target, output_limits=(40, 100), sample_time=sample_time)
 
-    cdu_out=[]
     while flag:
         Temperatures = adam.buffer.tolist()
         if any(Temperatures):
@@ -75,32 +81,21 @@ try:
             print(f"T_air_in | {Temperatures[5]}", end=" | ")
             print(f"T_air_out | {Temperatures[6]}\n")
 
-            cdu_out.append(Temperatures[3])
             delta = Temperatures[2] - Temperatures[3]
             reference = target + delta
             controller.setpoint = reference
 
-            fan = controller(Temperatures[2])
-            # 將輸出值調整為最近的 5 的倍數
-            adjusted_output = round(fan / 5) * 5
-            # 確保調整後的值仍然在設定的上下限範圍內
-            adjusted_output = max(controller.output_limits[0], min(adjusted_output, controller.output_limits[1]))
-            print(f"fan real speed={fan}\n")
-            print(f"fan speed={adjusted_output}")
+            pump_duty = round(controller(GB_PID(Temperatures[0],target))/10)*10
+            print(f"pump  speed={pump_duty}\n")
 
-            fan1.set_all_duty_cycle(adjusted_output)
-            fan2.set_all_duty_cycle(adjusted_output)
-
-            adam.update_duty_cycles(adjusted_output,pump_duty)
+            adam.update_duty_cycles(fan_duty,pump_duty)
             adam.update_else_data(delta)
             counter += 1
-            print(f"counter {counter}\n")
+            print(f"counter={counter}")
         time.sleep(sample_time)
-
 
 except KeyboardInterrupt:
     print("實驗被用戶中斷")
-
 except Exception as e:
     print(f"發生錯誤: {e}")
 
@@ -108,10 +103,9 @@ finally:
     adam.stop_threading('buffer')
     adam.stop_threading('adam')
     adam.closeport()
-    fan1.set_all_duty_cycle(30)
-    fan2.set_all_duty_cycle(30)
+    fan1.set_all_duty_cycle(40)
+    fan2.set_all_duty_cycle(40)
     pump.set_duty_cycle(100)
     print("實驗結束，所有裝置恢復到安全狀態。")
-    adam.plot_experiment_results(exp_name, exp_var)
-
-
+    # 繪製實驗結果圖
+    adam.plot_experiment_results()

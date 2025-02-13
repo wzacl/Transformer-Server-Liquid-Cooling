@@ -1,5 +1,17 @@
+'''''
+PID_pump.py
 
+PID控制器，控制泵轉速
 
+本研究中的晶片瓦數對應的電源供應器參數設置如下
+1KW：220V_8A
+1.5KW：285V_8A
+1.9KW：332V_8A
+
+對應的風扇與泵最低轉速如下
+泵：40% duty cycle
+風扇：30% duty cycle
+'''''
 import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
