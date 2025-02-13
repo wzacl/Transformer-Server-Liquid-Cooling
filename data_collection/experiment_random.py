@@ -6,7 +6,7 @@
 '''''
 import time
 import sys
-sys.path.append('/home/inventec/Desktop/2KWCDU')
+sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
 import ADAMScontroller
 import pwmcontroller as ctrl
 import multi_channel_pwmcontroller as multi_ctrl
