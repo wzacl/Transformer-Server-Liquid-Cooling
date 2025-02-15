@@ -25,7 +25,7 @@ exp_name = '/home/inventec/Desktop/2KWCDU/data_manage/Real_time_Prediction_data'
 #設置實驗資料檔案名稱
 exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)'
 #設置實驗資料標題
-custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty','T_w_delta', 'GPU_Watt(KW)']
+custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
 adam = ADAMScontroller.DataAcquisition(exp_name, exp_var, port=adam_port, csv_headers=custom_headers)
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
@@ -36,7 +36,7 @@ pump = ctrl.XYKPWMController(pump_port)
 model_path = 'Predict_Model/multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.005_epoch300/2KWCDU_Transformer_model.pth'
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
-scaler_path = 'Predict_Model/multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.005_epoch300/minmax_scaler.pkl' 
+scaler_path = 'Predict_Model\1.5_1KW_scalers.jlib' 
 
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -115,7 +115,7 @@ class TransformerModel(nn.Module):
 # 創建數據緩存
 time_window = 20  # 時間窗口大小
 history_buffer = deque(maxlen=time_window)
-features = ['T_GPU', 'T_heater', 'T_CDU_in', 'T_env', 'T_air_in', 'T_air_out', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
+features = ['T_GPU', 'T_CDU_in', 'T_env', 'T_air_in', 'T_air_out', 'fan_duty', 'pump_duty']
 
 # 修改預測數據記錄結構
 prediction_data = {
@@ -135,17 +135,7 @@ ax.legend()
 
 def get_current_features(data):
     """獲取當前時間步的特徵"""
-    return np.array([
-        data['T_GPU'],
-        data['T_heater'],
-        data['T_CDU_in'],
-        data['T_env'],
-        data['T_air_in'],
-        data['T_air_out'],
-        data['fan_duty'],
-        data['pump_duty'],
-        data['GPU_Watt(KW)']
-    ])
+    return np.array(data)
 
 def prepare_sequence_data(history_buffer):
     """準備並預處理序列數據"""
@@ -190,7 +180,7 @@ def update_plot():
 while True:
     try:
         # 獲取當前數據
-        data = adam.get_data()
+        data = adam.buffer[1:].tolist() + adam.buffer[3:8].tolist() + adam.buffer[9:11].tolist() + adam.buffer[12:].tolist()
         
         # 更新歷史緩存
         current_features = get_current_features(data)
@@ -201,7 +191,7 @@ while True:
             # 準備並預處理輸入數據
             input_tensor = prepare_sequence_data(history_buffer)
             
-            # 执行预测
+            # 執行預測
             with torch.no_grad():
                 scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
             

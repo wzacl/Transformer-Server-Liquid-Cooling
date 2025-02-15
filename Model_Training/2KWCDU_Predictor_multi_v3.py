@@ -11,6 +11,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import math
 import os
 import csv
+import joblib
 # 檢查是否有可用的cuda設備
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
@@ -374,6 +375,10 @@ for batch_size in batch_size_list:
                                      train_metrics[0], train_metrics[1], train_metrics[2], train_metrics[3],
                                      test1_metrics[0], test1_metrics[1], test1_metrics[2], test1_metrics[3],
                                      test2_metrics[0], test2_metrics[1], test2_metrics[2], test2_metrics[3]])
+
+                # 保存scaler
+                scaler_save_path = f"{folder_name}/minmax_scaler.pkl"
+                joblib.dump(scaler_X, scaler_save_path)
 
 print(f"All results have been saved to {results_file}")
 
