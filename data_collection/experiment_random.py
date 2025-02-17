@@ -11,7 +11,7 @@
 '''''
 import time
 import sys
-sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
 import ADAMScontroller
 import pwmcontroller as ctrl
 import multi_channel_pwmcontroller as multi_ctrl
@@ -28,13 +28,13 @@ fan1_port = '/dev/ttyAMA5'
 fan2_port = '/dev/ttyAMA4'
 pump_port = '/dev/ttyAMA3'
 #設置實驗資料放置的資料夾(不要動)
-exp_name = '/home/inventec/Desktop/2KWCDU/data_collection/Model_testing_data'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_collection/Model_testing_data'
 #設置實驗資料檔案名稱(可自行更動)
 exp_var = 'Testingdata_GPU1.5W(218V_8A)_5%_1'
 #自訂資料表頭
 custom_headers = ['time','T_GPU','T_heater','T_CDU_in','T_CDU_out','T_env','T_air_in','T_air_out','TMP8','fan_duty','pump_duty','GPU_Watt(KW)']
 #設置實驗參數變動設置(不要動)
-experiment_set='/home/inventec/Desktop/2KWCDU/data_collection/experiment_setting_random.csv'
+experiment_set='/home/inventec/Desktop/2KWCDU_修改版本/data_collection/experiment_setting_random.csv'
 # 創建控制器物件
 adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=adam_port, csv_headers=custom_headers)
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)

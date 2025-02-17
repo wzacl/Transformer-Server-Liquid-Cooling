@@ -1,6 +1,6 @@
 import time
 import sys
-sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
 
 import ADAMScontroller
 import pwmcontroller as ctrl
@@ -21,7 +21,7 @@ fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU/data_manage/Real_time_Prediction_data'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data'
 #設置實驗資料檔案名稱
 exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)'
 #設置實驗資料標題

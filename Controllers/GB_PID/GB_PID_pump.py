@@ -14,7 +14,7 @@ GB_PID控制器，利用Guaranteed Bounded PID控制泵轉速
 '''''
 import time
 import sys
-sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
 
 import ADAMScontroller
 import pwmcontroller as ctrl
@@ -27,7 +27,7 @@ fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 #資料儲存位置(不要動)
-exp_name = '/home/inventec/Desktop/2KWCDU/data_collection/PID_pump'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_collection/PID_pump'
 #實驗檔案名稱(可自行更動)
 exp_var = '250212PID-pump'
 #自訂資料表頭

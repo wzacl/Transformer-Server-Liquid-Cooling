@@ -12,7 +12,7 @@
 '''''
 import time
 import sys
-sys.path.append('/home/inventec/Desktop/2KWCDU/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
 import ADAMScontroller
 import pwmcontroller as ctrl
 import multi_channel_pwmcontroller as multi_ctrl
@@ -29,13 +29,13 @@ fan1_port = '/dev/ttyAMA5'
 fan2_port = '/dev/ttyAMA4'
 
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU/data_manage/Model_Training_data'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Model_Training_data'
 #設置實驗資料檔案名稱
 exp_var = 'Training_data_GPU15KW_1(285V_8A)'
 #設置保存進度的jason文件名稱
 experiment_progress='Training_data_GPU15KW_1(285V_8A).json'
 #選取變數設置的csv檔案    
-settings_file = '/home/inventec/Desktop/2KWCDU/Experimental_parameter_setting/training_data_final_1.csv'
+settings_file = '/home/inventec/Desktop/2KWCDU_修改版本/Experimental_parameter_setting/training_data_final_1.csv'
 #設定檔案標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt']
 
