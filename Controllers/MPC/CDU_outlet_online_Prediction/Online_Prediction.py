@@ -9,12 +9,13 @@ import multi_channel_pwmcontroller as multi_ctrl
 from simple_pid import PID
 import matplotlib.pyplot as plt
 import numpy as np
-import pickle
+import joblib
 import torch
 import torch.nn as nn
 from collections import deque
 import math
 from sklearn.preprocessing import MinMaxScaler
+import os
 
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
@@ -33,19 +34,15 @@ fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
 
+print('模型初始化.....')
+
 # 修改模型和scaler路徑
-model_path = 'code_manage/Predict_Model/multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.01_epoch300/2KWCDU_Transformer_model.pth'
+model_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/2KWCDU_Transformer_model.pth'
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
-scaler_path = 'code_manage/Predict_Model/1.5_1KWscalers.pkl' 
+scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
 
-# 加載模型和scaler
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = torch.load(model_path, map_location=device)
-model.eval()
 
-# 使用pickle加載訓練好的scaler
-scaler = pickle.load(open(scaler_path, 'rb'))
 
 # 設置初始轉速
 pump_duty=40
@@ -54,6 +51,9 @@ fan_duty=60
 fan1.set_all_duty_cycle(fan_duty)
 fan2.set_all_duty_cycle(fan_duty)
 
+# 設置ADAM控制器
+adam.start_adam()
+adam.update_duty_cycles(fan_duty, pump_duty)
 
 # 位置編碼類
 class PositionalEncoding(nn.Module):
@@ -157,6 +157,20 @@ class TransformerModel(nn.Module):
         
         return torch.stack(outputs, dim=1)
 
+# 加載模型和scaler
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
+model = TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
+model.load_state_dict(model_state_dict)
+model.eval()
+
+# 使用 joblib 加載訓練好的 scaler
+scaler = joblib.load(scaler_path)
+
+# 確保 scaler 是 MinMaxScaler 的實例
+if isinstance(scaler, dict):
+    raise ValueError("Loaded scaler is a dictionary, expected MinMaxScaler instance. Please check the scaler file.")
+
 # 創建數據緩存
 time_window = 20  # 時間窗口大小
 history_buffer = deque(maxlen=time_window)
@@ -169,6 +183,8 @@ prediction_data = {
     'predicted_sequence': []  # 儲存8個時間步的預測
 }
 
+'''''
+
 # 初始化繪圖
 plt.ion()
 fig, ax = plt.subplots(figsize=(12, 6))
@@ -177,30 +193,43 @@ line2, = ax.plot([], [], 'b--', label='預測溫度')
 ax.set_xlabel('時間 (s)')
 ax.set_ylabel('溫度 (°C)')
 ax.legend()
-
+'''''
 def get_current_features(data):
     """獲取當前時間步的特徵"""
-    return np.array(data)
+    # 確保輸入數據長度為7個特徵
+    if len(data) != 7:
+        raise ValueError(f"輸入數據必須包含7個特徵,當前數據長度為:{len(data)}")
+    
+    # 將單個時間步的數據轉換為2D數組並進行縮放
+    data_2d = np.array(data).reshape(1, -1)
+    if isinstance(scaler, tuple):
+        scaled_data = scaler[0].transform(data_2d)
+    else:
+        scaled_data = scaler.transform(data_2d)
+    
+    return scaled_data[0]
 
 def prepare_sequence_data(history_buffer):
-    """準備並預處理序列數據"""
-    # 轉換歷史數據為numpy數組
+    if len(history_buffer) != 20:
+        print(f"歷史數據長度錯誤: {len(history_buffer)}，需要 20 個時間步")
+        return None
     sequence = np.array(list(history_buffer))
-    
-    # 使用scaler進行特徵標準化
-    sequence_scaled = scaler.transform(sequence)
-    
-    # 轉換為PyTorch張量並添加batch維度
-    return torch.FloatTensor(sequence_scaled).unsqueeze(0).to(device)
+    if sequence.shape != (20, 7):
+        print(f"數據形狀錯誤: {sequence.shape}，需要 (20, 7)")
+        return None
+    return torch.FloatTensor(sequence).unsqueeze(0).to(device)
 
 def inverse_transform_predictions(scaled_predictions):
-    """將預測結果轉換回原始範圍"""
-    # 確保預測值的形狀正確（如果需要，添加特徵維度）
+    # 確保 predictions 為 2D 陣列 (8,1)
     if len(scaled_predictions.shape) == 1:
         scaled_predictions = scaled_predictions.reshape(-1, 1)
-    
-    # 反向轉換預測值
-    return scaler.inverse_transform(scaled_predictions)[:, 0]  # 只取第一個特徵（溫度）
+
+    # 確保 `scaler` 為 `tuple` 時只使用 `scaler_y`
+    if isinstance(scaler, tuple):
+        return scaler[1].inverse_transform(scaled_predictions)[:, 0]
+    else:
+        return scaler.inverse_transform(scaled_predictions)[:, 0]
+
 
 def update_plot():
     """更新實時溫度曲線"""
@@ -224,21 +253,32 @@ def update_plot():
 # 主循环
 while True:
     try:
-        # 獲取當前數據
-        data = adam.buffer[1:].tolist() + adam.buffer[3:8].tolist() + adam.buffer[9:11].tolist() + adam.buffer[12:].tolist()
-        
-        # 更新歷史緩存
+        # 獲取當前數據並確保有7個特徵
+        data = [
+                adam.buffer[0],  # T_GPU
+                adam.buffer[2],  # T_CDU_in
+                adam.buffer[4],  # T_env
+                adam.buffer[5],  # T_air_in
+                adam.buffer[6],  # T_air_out
+                adam.buffer[8],  # fan_duty
+                adam.buffer[9]  # pump_duty
+            ]
+
+
+        # 更新歷史緩存 (存入已縮放的數據)
         current_features = get_current_features(data)
         history_buffer.append(current_features)
         
+        # 準備輸入數據 (數據已經過縮放)
+        input_tensor = prepare_sequence_data(history_buffer)
+        
         # 當歷史數據足夠時進行預測
-        if len(history_buffer) == time_window:
-            # 準備並預處理輸入數據
-            input_tensor = prepare_sequence_data(history_buffer)
-            
+        if input_tensor is not None:
             # 執行預測
             with torch.no_grad():
                 scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
+                print(f"scaled_predictions 形狀: {scaled_predictions.shape}")
+
             
             # 將預測結果轉換回原始範圍
             predicted_sequence = inverse_transform_predictions(scaled_predictions)
@@ -246,14 +286,14 @@ while True:
             # 記錄結果
             current_time = time.time()
             prediction_data['timestamps'].append(current_time)
-            prediction_data['actual_temps'].append(data['T_CDU_out'])
+            prediction_data['actual_temps'].append(data[4])  # T_CDU_out 位於索引3
             prediction_data['predicted_sequence'].append(predicted_sequence)
             
             # 更新图表
-            update_plot()
+            #update_plot()
             
             # 打印預測結果
-            print(f"當前溫度: {data['T_CDU_out']:.2f}°C")
+            print(f"當前溫度: {data[3]:.2f}°C")
             print(f"未來8步預測溫度: {predicted_sequence}")
         
         time.sleep(1)  # 控制採樣頻率

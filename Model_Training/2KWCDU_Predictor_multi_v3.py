@@ -12,35 +12,43 @@ import math
 import os
 import csv
 import joblib
+
 # 檢查是否有可用的cuda設備
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 seq_length = 20
 num_steps = 8
 
-
 # 讀取數據
-df1 = pd.read_csv('Training data/10.28_TrainingData_GPU1KW(218V_8A)_Pump[40-100].csv')
-df2 = pd.read_csv('Training data/11.04_TrainingData_GPU1.5KW(285V_8A)_Pump[40-100].csv')
-df3 = pd.read_csv('Testing data/11.06_Testingdata_GPU1.5KW(285V_8A).csv')
-df4 = pd.read_csv('Testing data/11.04_Testingdata_GPU1KW(218V_8A).csv')
+df1 = pd.read_csv('/home/icmems/Documents/112033547/Training data/10.28_TrainingData_GPU1KW(218V_8A)_Pump[40-100].csv')
+df2 = pd.read_csv('/home/icmems/Documents/112033547/Training data/11.04_TrainingData_GPU1.5KW(285V_8A)_Pump[40-100].csv')
+df3 = pd.read_csv('/home/icmems/Documents/112033547/Testing data/11.06_Testingdata_GPU1.5KW(285V_8A).csv')
+df4 = pd.read_csv('/home/icmems/Documents/112033547/Testing data/11.04_Testingdata_GPU1KW(218V_8A).csv')
 
 # Define the CSV file to store results
-results_file = 'Train_results_含模型_1.5KW_and_1KW/Multi_step/hyperparameter_results_2.csv'
-saving_folder='Train_results_含模型_1.5KW_and_1KW'
+results_file = '/home/icmems/Documents/112033547/Train_results_含模型_1.5KW_and_1KW_無瓦數_無加熱器溫度/Multi_step/hyperparameter_results_2.csv'
+saving_folder='/home/icmems/Documents/112033547/Train_results_含模型_1.5KW_and_1KW_無瓦數_無加熱器溫度'
 
 # 選擇特徵和目標
-features = ['T_GPU','T_heater','T_CDU_in','T_env','T_air_in','T_air_out','fan_duty','pump_duty','GPU_Watt(KW)']
+features = ['T_GPU','T_CDU_in','T_env','T_air_in','T_air_out','fan_duty','pump_duty']
 target = 'T_CDU_out'
-#進行數據預處理
+
+# 進行數據預處理
 # 建立歸一化類別
 scaler_X = MinMaxScaler()
 scaler_y = MinMaxScaler()
+
 # 建立歸一化映射區間
 X_all = np.vstack((df1[features].values, df2[features].values))
 y_all = np.vstack((df1[[target]].values, df2[[target]].values))
 scaler_X.fit(X_all)
 scaler_y.fit(y_all)
+
+# 保存映射範圍
+scaler_filename = f"{saving_folder}/Multi_step/1.5_1KWscalers.jlib"
+os.makedirs(os.path.dirname(scaler_filename), exist_ok=True)
+joblib.dump((scaler_X, scaler_y), scaler_filename)
+print(f"映射範圍已保存至 {scaler_filename}")
 
 
 # 分別處理兩組數據
@@ -86,11 +94,23 @@ class PositionalEncoding(nn.Module):
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        return x + self.pe[:x.size(0), :]
+        if x.size(1) > self.pe.size(1):
+            pe = self._extend_pe(x.size(1), x.device)
+            return x + pe[:, :x.size(1), :]
+        return x + self.pe[:, :x.size(1), :]
+    
+    def _extend_pe(self, length, device):
+        pe = torch.zeros(1, length, self.pe.size(2))
+        position = torch.arange(0, length, dtype=torch.float, device=device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, self.pe.size(2), 2, device=device).float() * 
+                           (-math.log(10000.0) / self.pe.size(2)))
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term[:self.pe.size(2)//2])
+        return pe
 
 # Transformer 模型
 class TransformerModel(nn.Module):
@@ -103,13 +123,23 @@ class TransformerModel(nn.Module):
         # 編碼器部分
         self.embedding = nn.Linear(input_dim, hidden_dim)
         self.pos_encoder = PositionalEncoding(hidden_dim)
-        encoder_layers = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=dropout)
+        encoder_layers = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, 
+            nhead=num_heads, 
+            dropout=dropout,
+            batch_first=True
+        )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
         
         # 解碼器部分
         self.decoder_embedding = nn.Linear(output_dim, hidden_dim)
         self.pos_decoder = PositionalEncoding(hidden_dim)
-        decoder_layers = nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=dropout)
+        decoder_layers = nn.TransformerDecoderLayer(
+            d_model=hidden_dim, 
+            nhead=num_heads, 
+            dropout=dropout,
+            batch_first=True
+        )
         self.transformer_decoder = nn.TransformerDecoder(decoder_layers, num_layers=num_layers)
         
         # 輸出層
@@ -128,28 +158,25 @@ class TransformerModel(nn.Module):
         
         # 編碼器
         src_embedded = self.embedding(src)  # [batch_size, seq_len, hidden_dim]
-        src_embedded = src_embedded.permute(1, 0, 2)  # [seq_len, batch_size, hidden_dim]
         src_embedded = self.pos_encoder(src_embedded)
         memory = self.transformer_encoder(src_embedded)  # 生成 memory
 
-        # 初始化解码器输入为全零，确保形状与 src 的 batch_size 匹配
+        # 初始化解码器输入为全零，确保形状與 src 的 batch_size 匹配
         tgt = torch.zeros(src.size(0), 1, self.output_dim).to(src.device)
         
         # 解碼器
         outputs = []
         for _ in range(num_steps):
             tgt_embedded = self.decoder_embedding(tgt)  # [batch_size, tgt_len, hidden_dim]
-            tgt_embedded = tgt_embedded.permute(1, 0, 2)  # [tgt_len, batch_size, hidden_dim]
             tgt_embedded = self.pos_decoder(tgt_embedded)
             
-            # 确保 tgt_mask 的形状与 tgt_embedded 的形状匹配
-            if self.tgt_mask is None or self.tgt_mask.size(0) != tgt_embedded.size(0):
+            # 修改 mask 生成邏輯
+            if self.tgt_mask is None or self.tgt_mask.size(0) != tgt.size(1):
                 device = tgt.device
-                mask = self._generate_square_subsequent_mask(tgt_embedded.size(0)).to(device)
+                mask = self._generate_square_subsequent_mask(tgt.size(1)).to(device)
                 self.tgt_mask = mask
 
             output = self.transformer_decoder(tgt_embedded, memory, tgt_mask=self.tgt_mask)
-            output = output.permute(1, 0, 2)  # [batch_size, tgt_len, hidden_dim]
             
             # 輸出層
             output = self.fc(output)  # [batch_size, tgt_len, output_dim]
@@ -344,7 +371,7 @@ for batch_size in batch_size_list:
                     os.makedirs(folder_name)
 
                 # 保存模型
-                torch.save(model, model_save_path)
+                torch.save(model.state_dict(), model_save_path)
                 print(f"模型已保存至 {model_save_path}")
 
 
@@ -376,13 +403,7 @@ for batch_size in batch_size_list:
                                      test1_metrics[0], test1_metrics[1], test1_metrics[2], test1_metrics[3],
                                      test2_metrics[0], test2_metrics[1], test2_metrics[2], test2_metrics[3]])
 
-                # 保存scaler
-                scaler_save_path = f"{folder_name}/minmax_scaler.pkl"
-                joblib.dump(scaler_X, scaler_save_path)
-
 print(f"All results have been saved to {results_file}")
-
-
 
 
 
