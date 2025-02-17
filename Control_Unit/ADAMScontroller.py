@@ -15,7 +15,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 #from tabulate import tabulate
 class DataAcquisition:
-    def __init__(self,exp_var,exp_name='./experiment', port='/dev/ttyUSB0', buffer_size=8, data_update_rate=1, csv_headers=None):
+    def __init__(self, 
+                 exp_var,  # 將沒有默認值的參數放在前面
+                 exp_name='./experiment',  # 帶默認值的參數放在後面
+                 port='/dev/ttyUSB0',
+                 buffer_size=8,
+                 data_update_rate=1,
+                 csv_headers=None):
         self.exp_name = exp_name
         self.port = port
         self.buffer_size = buffer_size
@@ -132,27 +138,71 @@ class DataAcquisition:
     def update_duty_cycles(self, fan_duty, pump_duty):
         with self.buffer_lock:
             self.buffer[-2:] = [fan_duty, pump_duty]
-    def update_else_data(self, data):
+    def update_else_data(self, data_list):
+        """
+        更新額外的數據
+        :param data_list: 包含要更新的數據的列表
+        """
         with self.buffer_lock:
-            self.buffer = np.append(self.buffer, data)
+            if isinstance(data_list, list):
+                for data in data_list:
+                    self.buffer = np.append(self.buffer, data)
+            else:
+                self.buffer = np.append(self.buffer, data_list)
 
     def plot_experiment_results(self):
-        df = pd.read_csv(self.exp_name + '/' + self.exp_var + '.csv')
-        # 丟棄前兩秒的資料
-        df = df.iloc[2:].reset_index(drop=True)
-        plt.figure(figsize=(10,6))
-        plt.plot(df['T_CDU_out'], label='CDU出水溫度')
-        plt.plot(df['T_GPU'], label='GPU溫度') 
-        plt.plot(df['fan_duty'], label='風扇轉速') 
-        plt.plot(df['pump_duty'], label='泵轉速')
-        plt.xlabel('時間(s)')
-        plt.ylabel('溫度(°C)')
-        plt.title('實驗溫度響應圖')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig(exp_name + '/' + exp_var + '.png')
-        plt.show()
-        print("實驗結果圖已保存到" + exp_name + '/' + exp_var + '.png')
+        """
+        繪製實驗結果圖
+        """
+        try:
+            # 使用新版本 pandas 的參數名稱
+            df = pd.read_csv(
+                os.path.join(self.exp_name, self.exp_var + '.csv'),
+                on_bad_lines='skip'  # 替換 error_bad_lines
+            )
+            
+            # 檢查數據列是否存在
+            required_columns = ['T_GPU', 'T_CDU_out', 'fan_duty', 'pump_duty']
+            if not all(col in df.columns for col in required_columns):
+                raise ValueError("缺少必要的數據列")
+            
+            # 丟棄前兩秒的資料
+            df = df.iloc[2:].reset_index(drop=True)
+            
+            plt.figure(figsize=(12,8))
+            
+            # 創建主圖
+            ax1 = plt.gca()
+            ax2 = ax1.twinx()
+            
+            # 繪製溫度數據
+            ax1.plot(df['T_GPU'], 'r-', label='GPU Temperature')
+            ax1.plot(df['T_CDU_out'], 'b-', label='CDU Outlet Temperature')
+            
+            # 繪製控制信號
+            ax2.plot(df['fan_duty'], 'g--', label='Fan Duty')
+            ax2.plot(df['pump_duty'], 'y--', label='Pump Duty')
+            
+            # 設置標籤和標題
+            ax1.set_xlabel('Time(s)')
+            ax1.set_ylabel('Temperature(°C)')
+            ax2.set_ylabel('Duty Cycle(%)')
+            plt.title('Experiment Temperature Response')
+            
+            # 合併圖例
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax1.legend(lines1 + lines2, labels1 + labels2, loc='best')
+            
+            # 保存圖片
+            plt.savefig(os.path.join(self.exp_name, self.exp_var + '.png'))
+            plt.show()
+            print(f"實驗結果圖已保存到 {os.path.join(self.exp_name, self.exp_var)}.png")
+            
+        except Exception as e:
+            print(f"繪圖時發生錯誤: {e}")
+            print("請檢查數據文件格式是否正確")
+
     def start_adam(self):
         self.setup_directories()
         self.start_data_buffer()
@@ -162,7 +212,7 @@ class DataAcquisition:
 if __name__ == "__main__":
     exp_name = '2024.8.30測試'  # 實驗存取資料夾
     exp_var  = 'test1128'  #實驗變數
-    data_acquisition = DataAcquisition(exp_name=exp_name,exp_var=exp_var,port='/dev/ttyUSB0')
+    data_acquisition = DataAcquisition(exp_var=exp_var,exp_name=exp_name,port='/dev/ttyUSB0')
 
     print('Start experiment~!')
     data_acquisition.setup_directories()#記得修改檔案名稱
