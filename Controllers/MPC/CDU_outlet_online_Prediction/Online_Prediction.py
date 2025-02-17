@@ -1,3 +1,4 @@
+# /usr/bin/python3
 import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
@@ -8,7 +9,7 @@ import multi_channel_pwmcontroller as multi_ctrl
 from simple_pid import PID
 import matplotlib.pyplot as plt
 import numpy as np
-import joblib
+import pickle
 import torch
 import torch.nn as nn
 from collections import deque
@@ -32,21 +33,29 @@ fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
 
-# 修改模型和scaler加载路径
-model_path = 'Predict_Model/multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.005_epoch300/2KWCDU_Transformer_model.pth'
+# 修改模型和scaler路徑
+model_path = 'code_manage/Predict_Model/multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.01_epoch300/2KWCDU_Transformer_model.pth'
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
-scaler_path = 'Predict_Model\1.5_1KW_scalers.jlib' 
+scaler_path = 'code_manage/Predict_Model/1.5_1KWscalers.pkl' 
 
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = torch.load(model_path, map_location=device)
 model.eval()
 
-# 使用joblib加載訓練好的scaler
-scaler = joblib.load(scaler_path)
+# 使用pickle加載訓練好的scaler
+scaler = pickle.load(open(scaler_path, 'rb'))
 
-# 位置編碼器類
+# 設置初始轉速
+pump_duty=40
+pump.set_duty_cycle(pump_duty)
+fan_duty=60
+fan1.set_all_duty_cycle(fan_duty)
+fan2.set_all_duty_cycle(fan_duty)
+
+
+# 位置編碼類
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -55,29 +64,58 @@ class PositionalEncoding(nn.Module):
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        return x + self.pe[:x.size(0), :]
+        if x.size(1) > self.pe.size(1):
+            pe = self._extend_pe(x.size(1), x.device)
+            return x + pe[:, :x.size(1), :]
+        return x + self.pe[:, :x.size(1), :]
+    
+    def _extend_pe(self, length, device):
+        pe = torch.zeros(1, length, self.pe.size(2))
+        position = torch.arange(0, length, dtype=torch.float, device=device).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, self.pe.size(2), 2, device=device).float() * 
+                           (-math.log(10000.0) / self.pe.size(2)))
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term[:self.pe.size(2)//2])
+        return pe
 
-# Transformer模型類
+# Transformer 模型
 class TransformerModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers, num_heads, dropout):
         super(TransformerModel, self).__init__()
+        
+        # 初始化 output_dim
         self.output_dim = output_dim
         
+        # 編碼器部分
         self.embedding = nn.Linear(input_dim, hidden_dim)
         self.pos_encoder = PositionalEncoding(hidden_dim)
-        encoder_layers = nn.TransformerEncoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=dropout)
+        encoder_layers = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, 
+            nhead=num_heads, 
+            dropout=dropout,
+            batch_first=True
+        )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=num_layers)
         
+        # 解碼器部分
         self.decoder_embedding = nn.Linear(output_dim, hidden_dim)
         self.pos_decoder = PositionalEncoding(hidden_dim)
-        decoder_layers = nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=num_heads, dropout=dropout)
+        decoder_layers = nn.TransformerDecoderLayer(
+            d_model=hidden_dim, 
+            nhead=num_heads, 
+            dropout=dropout,
+            batch_first=True
+        )
         self.transformer_decoder = nn.TransformerDecoder(decoder_layers, num_layers=num_layers)
         
+        # 輸出層
         self.fc = nn.Linear(hidden_dim, output_dim)
+        
+        # 生成解碼器掩碼
         self.tgt_mask = None
         
     def _generate_square_subsequent_mask(self, sz):
@@ -86,28 +124,35 @@ class TransformerModel(nn.Module):
         return mask
         
     def forward(self, src, num_steps):
-        src_embedded = self.embedding(src)
-        src_embedded = src_embedded.permute(1, 0, 2)
+        # src shape: [batch_size, seq_len, input_dim]
+        
+        # 編碼器
+        src_embedded = self.embedding(src)  # [batch_size, seq_len, hidden_dim]
         src_embedded = self.pos_encoder(src_embedded)
-        memory = self.transformer_encoder(src_embedded)
+        memory = self.transformer_encoder(src_embedded)  # 生成 memory
 
+        # 初始化解码器输入为全零，确保形状與 src 的 batch_size 匹配
         tgt = torch.zeros(src.size(0), 1, self.output_dim).to(src.device)
         
+        # 解碼器
         outputs = []
         for _ in range(num_steps):
-            tgt_embedded = self.decoder_embedding(tgt)
-            tgt_embedded = tgt_embedded.permute(1, 0, 2)
+            tgt_embedded = self.decoder_embedding(tgt)  # [batch_size, tgt_len, hidden_dim]
             tgt_embedded = self.pos_decoder(tgt_embedded)
             
-            if self.tgt_mask is None or self.tgt_mask.size(0) != tgt_embedded.size(0):
+            # 修改 mask 生成邏輯
+            if self.tgt_mask is None or self.tgt_mask.size(0) != tgt.size(1):
                 device = tgt.device
-                mask = self._generate_square_subsequent_mask(tgt_embedded.size(0)).to(device)
+                mask = self._generate_square_subsequent_mask(tgt.size(1)).to(device)
                 self.tgt_mask = mask
 
             output = self.transformer_decoder(tgt_embedded, memory, tgt_mask=self.tgt_mask)
-            output = output.permute(1, 0, 2)
-            output = self.fc(output)
+            
+            # 輸出層
+            output = self.fc(output)  # [batch_size, tgt_len, output_dim]
             outputs.append(output[:, -1, :])
+            
+            # 使用當前輸出做為下一步輸入
             tgt = torch.cat((tgt, output[:, -1:, :]), dim=1)
         
         return torch.stack(outputs, dim=1)
