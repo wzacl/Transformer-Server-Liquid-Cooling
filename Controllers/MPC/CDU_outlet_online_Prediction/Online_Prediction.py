@@ -1,4 +1,18 @@
 # /usr/bin/python3
+'''''
+GB_PID_pump.py
+
+GB_PID控制器，利用Guaranteed Bounded PID控制泵轉速
+
+本研究中的晶片瓦數對應的電源供應器參數設置如下
+1KW：220V_8A
+1.5KW：285V_8A
+1.9KW：332V_8A
+
+對應的風扇與泵最低轉速如下
+泵：40% duty cycle
+風扇：30% duty cycle
+'''''
 import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
@@ -16,6 +30,7 @@ from collections import deque
 import math
 from sklearn.preprocessing import MinMaxScaler
 import os
+import pandas as pd
 
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
@@ -42,7 +57,12 @@ model_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Mod
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
 scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
 
-
+# 檢查文件是否存在,如果不存在則創建並寫入標題行
+prediction_file = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data_TEST_PLOT.csv'
+if not os.path.exists(prediction_file):
+    os.makedirs(os.path.dirname(prediction_file), exist_ok=True)
+    with open(prediction_file, 'w') as f:
+        f.write('timestamp,actual_temp,pred_1,pred_2,pred_3,pred_4,pred_5,pred_6,pred_7,pred_8\n')
 
 # 設置初始轉速
 pump_duty=40
@@ -231,39 +251,48 @@ def inverse_transform_predictions(scaled_predictions):
         return scaler.inverse_transform(scaled_predictions)[:, 0]
 
 
-def update_plot():
-    """更新實時溫度曲線"""
-    if len(prediction_data['timestamps']) > 0:
-        time_diff = [t - prediction_data['timestamps'][0] for t in prediction_data['timestamps']]
+def plot_future_predictions_with_unique_colors(df):
+    """每個時間點的預測使用不同顏色，並標示實際溫度"""
+    
+    plt.figure(figsize=(12, 6))
+    
+    # 使用 colormap 為每個時間點分配不同顏色
+    colors = plt.cm.viridis(np.linspace(0, 1, len(df)))
+    
+    # 繪製實際溫度（紅色圓圈）
+    plt.plot(df['timestamp'], df['actual_temp'], 'ro-', label='Actual Temperature', linewidth=2, markersize=6)
+    
+    # 在每個時間點繪製未來 8 步預測，該時間點的預測使用相同顏色
+    for i in range(len(df)):
+        future_steps = range(i, min(i + 8, len(df)))  # 確保不超過數據範圍
+        future_values = df.iloc[i, 2:2+len(future_steps)]  # 取 pred_1 到 pred_8
         
-        # 更新實際溫度曲線
-        line1.set_data(time_diff, prediction_data['actual_temps'])
-        
-        # 更新預測溫度曲線（顯示未來8步預測）
-        if len(prediction_data['predicted_sequence']) > 0:
-            last_time = time_diff[-1]
-            pred_times = [last_time + i*5 for i in range(8)]  # 假設每步5秒
-            line2.set_data(pred_times, prediction_data['predicted_sequence'][-1])
-        
-        ax.relim()
-        ax.autoscale_view()
-        plt.draw()
-        plt.pause(0.1)
+        if len(future_steps) > 1:
+            plt.plot(df['timestamp'].iloc[list(future_steps)], future_values, 'o--', color=colors[i], alpha=0.7, markersize=5)
+    
+    plt.xlabel('Timestamp')
+    plt.ylabel('Temperature (°C)')
+    plt.title('Temperature Predictions with Unique Colors per Timestamp')
+    plt.xticks(rotation=45)
+    plt.legend(['Actual Temperature'], loc='upper left', fontsize=9)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    # 保存圖表
+    plt.savefig(f'{prediction_file}_temperature_prediction_results.png')
+    plt.close()
 
 # 主循环
 while True:
     try:
         # 獲取當前數據並確保有7個特徵
         data = [
-                adam.buffer[0],  # T_GPU
-                adam.buffer[2],  # T_CDU_in
-                adam.buffer[4],  # T_env
-                adam.buffer[5],  # T_air_in
-                adam.buffer[6],  # T_air_out
-                adam.buffer[8],  # fan_duty
-                adam.buffer[9]  # pump_duty
-            ]
-
+            adam.buffer[0],  # T_GPU
+            adam.buffer[2],  # T_CDU_in
+            adam.buffer[4],  # T_env
+            adam.buffer[5],  # T_air_in
+            adam.buffer[6],  # T_air_out
+            adam.buffer[8],  # fan_duty
+            adam.buffer[9]   # pump_duty
+        ]
 
         # 更新歷史緩存 (存入已縮放的數據)
         current_features = get_current_features(data)
@@ -279,24 +308,40 @@ while True:
                 scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
                 print(f"scaled_predictions 形狀: {scaled_predictions.shape}")
 
-            
             # 將預測結果轉換回原始範圍
             predicted_sequence = inverse_transform_predictions(scaled_predictions)
             
             # 記錄結果
+            # 獲取當前時間
             current_time = time.time()
+            
+            # 將數據保存到 prediction_data 字典中
             prediction_data['timestamps'].append(current_time)
-            prediction_data['actual_temps'].append(data[4])  # T_CDU_out 位於索引3
+            prediction_data['actual_temps'].append(adam.buffer[3])  # T_CDU_out 位於索引3
             prediction_data['predicted_sequence'].append(predicted_sequence)
             
-            # 更新图表
-            #update_plot()
+            # 寫入預測數據
+            with open(prediction_file, 'a') as f:
+                timestamp = time.strftime('%c', time.localtime(current_time))
+                actual_temp = adam.buffer[3]
+                predicted_temps = ','.join([f'{temp:.1f}' for temp in predicted_sequence])
+                f.write(f'{timestamp},{actual_temp},{predicted_temps}\n')
             
             # 打印預測結果
-            print(f"當前溫度: {data[3]:.2f}°C")
+            print("==================== 系統狀態 ====================")
+            print(f"當前出口溫度:     {adam.buffer[3]:.2f}°C")
+            print(f"當前晶片溫度:     {data[0]:.2f}°C")
+            print("\n==================== 預測結果 ====================")
             print(f"未來8步預測溫度: {predicted_sequence}")
         
         time.sleep(1)  # 控制採樣頻率
+
+    except KeyboardInterrupt:
+        print("實驗結束，正在生成圖表...")
+        df = pd.read_csv(f'{prediction_file}')
+        plot_future_predictions_with_unique_colors(df)
+        print("圖表已保存，程序已安全退出。")
+        break
 
     except Exception as e:
         print(f"預測錯誤: {str(e)}")
