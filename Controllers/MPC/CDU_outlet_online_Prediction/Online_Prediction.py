@@ -177,6 +177,25 @@ class TransformerModel(nn.Module):
         
         return torch.stack(outputs, dim=1)
 
+class Model_tester:
+    def __init__(self, fan1,fan2, pump, adam):
+        self.fan1 = fan1
+        self.fan2 = fan2
+        self.pump = pump
+
+    def fan_random_control(self):
+        fan_duty_table = np.arange(30, 100, 10)
+        fan_duty= np.random.choice(fan_duty_table)
+        self.fan1.set_all_duty_cycle(fan_duty)
+        self.fan2.set_all_duty_cycle(fan_duty)
+
+    def pump_random_control(self):
+        pump_duty_table = np.arange(40, 100, 10)
+        pump_duty= np.random.choice(pump_duty_table)
+        self.pump.set_duty_cycle(pump_duty)
+
+
+
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
@@ -203,17 +222,7 @@ prediction_data = {
     'predicted_sequence': []  # 儲存8個時間步的預測
 }
 
-'''''
 
-# 初始化繪圖
-plt.ion()
-fig, ax = plt.subplots(figsize=(12, 6))
-line1, = ax.plot([], [], 'r-', label='實際溫度')
-line2, = ax.plot([], [], 'b--', label='預測溫度')
-ax.set_xlabel('時間 (s)')
-ax.set_ylabel('溫度 (°C)')
-ax.legend()
-'''''
 def get_current_features(data):
     """獲取當前時間步的特徵"""
     # 確保輸入數據長度為7個特徵
