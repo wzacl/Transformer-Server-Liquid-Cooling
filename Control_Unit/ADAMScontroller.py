@@ -135,9 +135,14 @@ class DataAcquisition:
             print('please input the threading you want to stop')
         return('stop threading:')
 
-    def update_duty_cycles(self, fan_duty, pump_duty):
+    def update_duty_cycles(self, fan_duty=None, pump_duty=None):
         with self.buffer_lock:
-            self.buffer[-2:] = [fan_duty, pump_duty]
+            current_values = self.buffer[-2:]
+            if fan_duty is not None:
+                current_values[0] = fan_duty
+            if pump_duty is not None:
+                current_values[1] = pump_duty
+            self.buffer[-2:] = current_values
     def update_else_data(self, data_list):
         """
         更新額外的數據

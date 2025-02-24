@@ -31,6 +31,8 @@ import math
 from sklearn.preprocessing import MinMaxScaler
 import os
 import pandas as pd
+import csv
+import random
 
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
@@ -40,11 +42,11 @@ pump_port = '/dev/ttyAMA3'
 #設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data'
 #設置實驗資料檔案名稱
-exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)'
+exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)_test_fan_pump_2.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
-adam = ADAMScontroller.DataAcquisition(exp_name, exp_var, port=adam_port, csv_headers=custom_headers)
+adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=adam_port, csv_headers=custom_headers)
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
@@ -58,14 +60,14 @@ model_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Mod
 scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
 
 # 檢查文件是否存在,如果不存在則創建並寫入標題行
-prediction_file = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data_TEST_PLOT.csv'
+prediction_file = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/Model_test_change_fan_pump_2.csv'
 if not os.path.exists(prediction_file):
     os.makedirs(os.path.dirname(prediction_file), exist_ok=True)
     with open(prediction_file, 'w') as f:
-        f.write('timestamp,actual_temp,pred_1,pred_2,pred_3,pred_4,pred_5,pred_6,pred_7,pred_8\n')
+        f.write('timestamp,actual_temp(CDU_out),actual_temp(GPU),fan_duty,pump_duty,pred_1,pred_2,pred_3,pred_4,pred_5,pred_6,pred_7,pred_8\n')
 
 # 設置初始轉速
-pump_duty=40
+pump_duty=60
 pump.set_duty_cycle(pump_duty)
 fan_duty=60
 fan1.set_all_duty_cycle(fan_duty)
@@ -177,22 +179,92 @@ class TransformerModel(nn.Module):
         
         return torch.stack(outputs, dim=1)
 
+import time
+import numpy as np
+
 class Model_tester:
-    def __init__(self, fan1,fan2, pump, adam):
+    def __init__(self, fan1, fan2, pump, adam):
         self.fan1 = fan1
         self.fan2 = fan2
         self.pump = pump
+        self.adam = adam
+        self.test_mode = None  # 1: 只變動風扇, 2: 只變動泵, 3: 隨機變動
+        self.start_time = None
+        self.wait_time = 20  # 初始等待 20 秒
+        self.run_time = None
+        self.device_type = None  # 記錄目前變動的是風扇還是泵
+        self.has_changed = False
+        self.phase = "wait"  # "wait" = 等待 20 秒, "running" = 變動後開始計時
 
-    def fan_random_control(self):
-        fan_duty_table = np.arange(30, 100, 10)
-        fan_duty= np.random.choice(fan_duty_table)
-        self.fan1.set_all_duty_cycle(fan_duty)
-        self.fan2.set_all_duty_cycle(fan_duty)
+    def start_test(self, mode):
+        """啟動指定測試模式"""
+        self.test_mode = mode
+        self.start_time = time.time()
+        self.phase = "wait"  # 進入等待階段
 
-    def pump_random_control(self):
-        pump_duty_table = np.arange(40, 100, 10)
-        pump_duty= np.random.choice(pump_duty_table)
-        self.pump.set_duty_cycle(pump_duty)
+        if mode == 1:
+            self.run_time = 180  # 變動後運行 180 秒
+            self.device_type = "fan"
+            print(f"[測試 1] 先維持原風扇轉速 20 秒，然後變動風扇")
+
+        elif mode == 2:
+            self.run_time = 30  # 變動後運行 30 秒
+            self.device_type = "pump"
+            print(f"[測試 2] 先維持原泵轉速 20 秒，然後變動泵")
+
+        elif mode == 3:
+            # 測試 3: 隨機變動風扇或泵（不需等待）
+            self.run_time = np.random.randint(7, 200) if np.random.rand() > 0.5 else np.random.randint(3, 45)
+            self.device_type = "fan" if np.random.rand() > 0.5 else "pump"
+
+            if self.device_type == "fan":
+                new_fan_duty = int(np.random.choice(np.arange(30, 100, 10)))
+                self.fan1.set_all_duty_cycle(new_fan_duty)
+                self.fan2.set_all_duty_cycle(new_fan_duty)
+                self.adam.update_duty_cycles(fan_duty=new_fan_duty)
+                print(f"[測試 3] 隨機變動風扇轉速至 {new_fan_duty}%，運行 {self.run_time} 秒")
+
+            else:
+                new_pump_duty = int(np.random.choice(np.arange(40, 100, 10)))
+                self.pump.set_duty_cycle(new_pump_duty)
+                self.adam.update_duty_cycles(pump_duty=new_pump_duty)
+                print(f"[測試 3] 隨機變動泵轉速至 {new_pump_duty}%，運行 {self.run_time} 秒")
+
+    def update_test(self):
+        """檢查測試是否結束，並執行測試邏輯"""
+        if self.test_mode is None:
+            return
+
+        elapsed_time = time.time() - self.start_time
+
+        # 先等待 20 秒，然後開始變動設備轉速
+        if self.phase == "wait" and elapsed_time >= self.wait_time:
+            if self.test_mode == 1:
+                new_fan_duty = int(np.random.choice(np.arange(30, 100, 10)))
+                self.fan1.set_all_duty_cycle(new_fan_duty)
+                self.fan2.set_all_duty_cycle(new_fan_duty)
+                self.adam.update_duty_cycles(fan_duty=new_fan_duty)
+                print(f"[測試 1] 風扇轉速變動至 {new_fan_duty}%，開始運行 180 秒")
+
+            elif self.test_mode == 2:
+                new_pump_duty = int(np.random.choice(np.arange(40, 100, 10)))
+                self.pump.set_duty_cycle(new_pump_duty)
+                self.adam.update_duty_cycles(pump_duty=new_pump_duty)
+                print(f"[測試 2] 泵轉速變動至 {new_pump_duty}%，開始運行 30 秒")
+
+            # 進入正式運行階段
+            self.start_time = time.time()  # 重新計時
+            self.phase = "running"
+
+        elif self.phase == "running" and elapsed_time >= self.run_time:
+            if self.test_mode == 3:
+                # 測試 3: 持續隨機變動風扇或泵
+                self.start_test(3)
+            else:
+                print(f"[測試 {self.test_mode}] 測試結束，回到正常運行")
+                self.test_mode = None
+                self.device_type = None
+                self.phase = None
 
 
 
@@ -202,6 +274,13 @@ model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weig
 model = TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
 model.load_state_dict(model_state_dict)
 model.eval()
+
+# 創建 Model_tester 物件
+model_tester = Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
+
+# 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
+model_tester.start_test(3)  # 這裡選擇隨機變動測試
+
 
 # 使用 joblib 加載訓練好的 scaler
 scaler = joblib.load(scaler_path)
@@ -217,8 +296,11 @@ features = ['T_GPU', 'T_CDU_in', 'T_env', 'T_air_in', 'T_air_out', 'fan_duty', '
 
 # 修改預測數據記錄結構
 prediction_data = {
-    'timestamps': [],
-    'actual_temps': [],
+    'timestamp': [],
+    'actual_temps(CDU_out)': [],
+    'actual_temps(GPU)': [],
+    'fan_duty': [],
+    'pump_duty': [],
     'predicted_sequence': []  # 儲存8個時間步的預測
 }
 
@@ -260,37 +342,59 @@ def inverse_transform_predictions(scaled_predictions):
         return scaler.inverse_transform(scaled_predictions)[:, 0]
 
 
-def plot_future_predictions_with_unique_colors(df):
-    """每個時間點的預測使用不同顏色，並標示實際溫度"""
+def plot_future_predictions_with_event_markers(df):
+    """繪製溫度預測曲線，並在風扇與泵轉速變動時標記事件點"""
     
-    plt.figure(figsize=(12, 6))
+    # 移除可能的欄位名稱空格
+    df.columns = df.columns.str.strip()
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    # 轉換 timestamp 為運行秒數
+    df['elapsed_time'] = np.arange(len(df))  # X 軸為經過的秒數
+
+    # 確保欄位名稱正確
+    temp_col = 'actual_temp(CDU_out)' if 'actual_temp(CDU_out)' in df.columns else 'actual_temp'
     
     # 使用 colormap 為每個時間點分配不同顏色
     colors = plt.cm.viridis(np.linspace(0, 1, len(df)))
-    
-    # 繪製實際溫度（紅色圓圈）
-    plt.plot(df['timestamp'], df['actual_temp'], 'ro-', label='Actual Temperature', linewidth=2, markersize=6)
-    
-    # 在每個時間點繪製未來 8 步預測，該時間點的預測使用相同顏色
+
+    # 繪製實際溫度
+    ax1.plot(df['elapsed_time'], df[temp_col], 'ro-', label='Actual Temperature', linewidth=2, markersize=6)
+
+    # 在每個時間點繪製未來 8 步預測
     for i in range(len(df)):
         future_steps = range(i, min(i + 8, len(df)))  # 確保不超過數據範圍
-        future_values = df.iloc[i, 2:2+len(future_steps)]  # 取 pred_1 到 pred_8
-        
+        future_values = df.iloc[i, 5:5+len(future_steps)]  # 取 pred_1 到 pred_8
+
         if len(future_steps) > 1:
-            plt.plot(df['timestamp'].iloc[list(future_steps)], future_values, 'o--', color=colors[i], alpha=0.7, markersize=5)
-    
-    plt.xlabel('Timestamp')
-    plt.ylabel('Temperature (°C)')
-    plt.title('Temperature Predictions with Unique Colors per Timestamp')
-    plt.xticks(rotation=45)
-    plt.legend(['Actual Temperature'], loc='upper left', fontsize=9)
-    plt.grid(True, linestyle='--', alpha=0.7)
+            ax1.plot(df['elapsed_time'].iloc[list(future_steps)], future_values, 'o--', color=colors[i], alpha=0.7, markersize=5)
+
+    ax1.set_xlabel('Elapsed Time (seconds)')
+    ax1.set_ylabel('Temperature (°C)')
+    ax1.set_title('Temperature Predictions with Event Markers')
+    ax1.grid(True, linestyle='--', alpha=0.7)
+
+    # 標記風扇與泵轉速變動點
+    for i in range(1, len(df)):
+        if df['fan_duty'].iloc[i] != df['fan_duty'].iloc[i - 1]:
+            ax1.axvline(x=df['elapsed_time'].iloc[i], color='blue', linestyle='--', alpha=0.8, label='Fan Change' if 'Fan Change' not in ax1.get_legend_handles_labels()[1] else "")
+            ax1.text(df['elapsed_time'].iloc[i], df[temp_col].iloc[i], 'Fan Change', color='blue', fontsize=9, rotation=45, verticalalignment='bottom')
+
+        if df['pump_duty'].iloc[i] != df['pump_duty'].iloc[i - 1]:
+            ax1.axvline(x=df['elapsed_time'].iloc[i], color='green', linestyle='--', alpha=0.8, label='Pump Change' if 'Pump Change' not in ax1.get_legend_handles_labels()[1] else "")
+            ax1.text(df['elapsed_time'].iloc[i], df[temp_col].iloc[i], 'Pump Change', color='green', fontsize=9, rotation=45, verticalalignment='bottom')
+
+    ax1.legend(loc='upper left', fontsize=9)
+
     # 保存圖表
-    plt.savefig(f'{prediction_file}_temperature_prediction_results.png')
-    plt.close()
+    plt.savefig('/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/temperature_prediction_fan_pump_change_2.png')
+
+
 
 # 主循环
 while True:
+    model_tester.update_test()
     try:
         # 獲取當前數據並確保有7個特徵
         data = [
@@ -312,6 +416,7 @@ while True:
         
         # 當歷史數據足夠時進行預測
         if input_tensor is not None:
+            
             # 執行預測
             with torch.no_grad():
                 scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
@@ -325,16 +430,19 @@ while True:
             current_time = time.time()
             
             # 將數據保存到 prediction_data 字典中
-            prediction_data['timestamps'].append(current_time)
-            prediction_data['actual_temps'].append(adam.buffer[3])  # T_CDU_out 位於索引3
+            prediction_data['timestamp'].append(current_time)
+            prediction_data['actual_temps(CDU_out)'].append(adam.buffer[3])  # T_CDU_out 位於索引3
+            prediction_data['actual_temps(GPU)'].append(data[0])  # T_GPU 位於索引0
+            prediction_data['fan_duty'].append(adam.buffer[8])  # fan_duty 位於索引8
+            prediction_data['pump_duty'].append(adam.buffer[9])  # pump_duty 位於索引9
             prediction_data['predicted_sequence'].append(predicted_sequence)
             
-            # 寫入預測數據
-            with open(prediction_file, 'a') as f:
-                timestamp = time.strftime('%c', time.localtime(current_time))
-                actual_temp = adam.buffer[3]
-                predicted_temps = ','.join([f'{temp:.1f}' for temp in predicted_sequence])
-                f.write(f'{timestamp},{actual_temp},{predicted_temps}\n')
+            # 寫入預測數據到CSV檔案
+            with open(prediction_file, 'a', newline='') as f:
+                writer = csv.writer(f)
+                timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))
+                row = [timestamp, adam.buffer[3], data[0], adam.buffer[8], adam.buffer[9]] + [f'{temp:.2f}' for temp in predicted_sequence]
+                writer.writerow(row)
             
             # 打印預測結果
             print("==================== 系統狀態 ====================")
@@ -342,13 +450,14 @@ while True:
             print(f"當前晶片溫度:     {data[0]:.2f}°C")
             print("\n==================== 預測結果 ====================")
             print(f"未來8步預測溫度: {predicted_sequence}")
+
         
         time.sleep(1)  # 控制採樣頻率
 
     except KeyboardInterrupt:
         print("實驗結束，正在生成圖表...")
         df = pd.read_csv(f'{prediction_file}')
-        plot_future_predictions_with_unique_colors(df)
+        plot_future_predictions_with_event_markers(df)
         print("圖表已保存，程序已安全退出。")
         break
 
