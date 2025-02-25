@@ -33,7 +33,8 @@ class DataAcquisition:
         self.ser_adam1 = None
         self.exp_var= exp_var
         self.csv_headers = csv_headers or ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
-        self.setup_directories()
+        self.th_buffer = None
+        self.th_adam = None
     
 
     def setup_directories(self):
@@ -72,8 +73,8 @@ class DataAcquisition:
             print('Buffer stop')
 
     def start_data_buffer(self):
-        th_buffer = threading.Thread(target=self.data_buffer)
-        th_buffer.start()
+        self.th_buffer = threading.Thread(target=self.data_buffer)
+        self.th_buffer.start()
         print('Start buffer')
 
     def value_extraction(self, value):
@@ -100,8 +101,8 @@ class DataAcquisition:
     def start_adam_controller(self):
         self.ser_adam1 = self.openport(self.port, 9600, timeout=None)
         if self.ser_adam1 and self.ser_adam1.is_open:
-            th_adam = threading.Thread(target=self.reading_from_adam)
-            th_adam.start()
+            self.th_adam = threading.Thread(target=self.reading_from_adam)
+            self.th_adam.start()
             print('Start ADAM controller')
         else:
             print('Failed to open ADAM port')
@@ -133,7 +134,13 @@ class DataAcquisition:
             self.flag_adam = False
         else:
             print('please input the threading you want to stop')
-        return('stop threading:')
+        return 'stop threading:'
+
+    def join_threads(self):
+        if self.th_buffer:
+            self.th_buffer.join()
+        if self.th_adam:
+            self.th_adam.join()
 
     def update_duty_cycles(self, fan_duty=None, pump_duty=None):
         with self.buffer_lock:
@@ -208,10 +215,22 @@ class DataAcquisition:
             print(f"繪圖時發生錯誤: {e}")
             print("請檢查數據文件格式是否正確")
 
+    def join_threads(self):
+        if self.th_buffer:
+            self.th_buffer.join()
+        if self.th_adam:
+            self.th_adam.join()
+
     def start_adam(self):
         self.setup_directories()
         self.start_data_buffer()
         self.start_adam_controller()
+    def stop_adam(self):
+        self.stop_threading('buffer')
+        self.stop_threading('adam')
+        self.join_threads()
+        self.closeport()
+        print('Experiment ended.')
 
             
 if __name__ == "__main__":
@@ -228,7 +247,4 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        data_acquisition.stop_threading('buffer')
-        data_acquisition.stop_threading('adam')
-        data_acquisition.closeport()
-        print('Experiment ended.')
+        data_acquisition.stop_adam()
