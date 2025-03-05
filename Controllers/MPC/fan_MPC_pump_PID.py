@@ -93,4 +93,3 @@ while True:
     fan2.set_all_duty_cycle(optimal_fan_speed)
     adam.update_duty_cycles(fan_duty)
     print(f"Optimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
-    time.sleep(control_frequency)
