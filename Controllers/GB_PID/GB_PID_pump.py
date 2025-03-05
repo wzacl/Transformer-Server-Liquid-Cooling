@@ -16,7 +16,6 @@ import time
 import sys
 import os
 sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
-
 import ADAMScontroller
 import pwmcontroller as ctrl
 import multi_channel_pwmcontroller as multi_ctrl
@@ -25,11 +24,7 @@ from simple_pid import PID
 
 
 class GB_PID_pump:
-    def __init__(self, adam, fan1, fan2, pump, target, Guaranteed_Bounded_PID_range=0.5,sample_time=1):
-        self.adam = adam
-        self.fan1 = fan1
-        self.fan2 = fan2
-        self.pump = pump
+    def __init__(self,target, Guaranteed_Bounded_PID_range=0.5,sample_time=1):
         self.target = target
         self.GB = Guaranteed_Bounded_PID_range
         self.sample_time = sample_time
@@ -98,14 +93,13 @@ if __name__ == '__main__':
     try:
         counter = 0
         flag = True
-        delta = 0
         target = 68
         sample_time = 1  # 定義取樣時間
         Guaranteed_Bounded_PID_range = 0.5
-        Controller = GB_PID_pump(adam, fan1, fan2, pump, target, Guaranteed_Bounded_PID_range, sample_time)
-        Controller.adam.start_adam()
+        Controller = GB_PID_pump( target, Guaranteed_Bounded_PID_range, sample_time)
+        adam.start_adam()
         while flag:
-            Temperatures = Controller.adam.buffer.tolist()
+            Temperatures = adam.buffer.tolist()
             if any(Temperatures):
                 # 獲取溫度數據
                 T_GPU = Temperatures[0]  # 定義 T_GPU 變量
@@ -121,8 +115,8 @@ if __name__ == '__main__':
                 pump_duty = round(Controller.controller(control_temp)/10)*10
                     
                 # 更新泵的轉速
-                Controller.pump.set_duty_cycle(pump_duty)
-                Controller.adam.update_duty_cycles(fan_duty, pump_duty)
+                pump.set_duty_cycle(pump_duty)
+                adam.update_duty_cycles(fan_duty, pump_duty)
 
                 counter += 1
 
@@ -134,12 +128,14 @@ if __name__ == '__main__':
         print(f"發生錯誤: {e}")
 
     finally:
-        Controller.adam.stop_threading('buffer')
-        Controller.adam.stop_threading('adam')
-        Controller.adam.closeport()
-        Controller.fan1.set_all_duty_cycle(40)
-        Controller.fan2.set_all_duty_cycle(40)
-        Controller.pump.set_duty_cycle(100)
+        adam.stop_threading('buffer')
+        adam.stop_threading('adam')
+        adam.closeport()
+        fan1.set_all_duty_cycle(40)
+        fan2.set_all_duty_cycle(40)
+        pump.set_duty_cycle(100)
         print("實驗結束，所有裝置恢復到安全狀態。")
         # 繪製實驗結果圖
-        Controller.adam.plot_experiment_results()
+        print("繪製實驗結果圖...")
+        adam.plot_experiment_results()
+        print("實驗結果圖繪製完成。")

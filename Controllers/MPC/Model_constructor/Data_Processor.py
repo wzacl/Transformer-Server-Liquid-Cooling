@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import joblib
 
 class Data_Processor:
-    def __init__(self, scaler_path, device,figure_path):
+    def __init__(self, scaler_path, device):
         self.scaler = joblib.load(scaler_path)
         self.device = device
-        self.figure_path = figure_path
+        #self.figure_path = figure_path
 
     def get_current_features(self, data):
         """獲取當前時間步的特徵"""
@@ -41,6 +41,8 @@ class Data_Processor:
         else:
             return self.scaler.inverse_transform(scaled_predictions)[:, 0]
 
+
+'''''
     def plot_future_predictions_with_event_markers(self, df):
         """繪製溫度預測曲線，並在風扇與泵轉速變動時標記事件點"""
         df.columns = df.columns.str.strip()
@@ -76,3 +78,4 @@ class Data_Processor:
 
         ax1.legend(loc='upper left', fontsize=9)
         plt.savefig(self.figure_path)
+'''''

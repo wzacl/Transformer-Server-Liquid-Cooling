@@ -88,14 +88,7 @@ model = Transformer.TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, nu
 model.load_state_dict(model_state_dict)
 model.eval()
 
-# 創建 Model_tester 物件
-model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
-
-# 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(3)  # 這裡選擇隨機變動測試
-
-
-Data_Processor = dp.Data_Processor(scaler_path, device,figure_path)
+Data_Processor = dp.Data_Processor(scaler_path, device)
 
 # 創建數據緩存
 time_window = 20  # 時間窗口大小
@@ -110,6 +103,12 @@ prediction_data = {
     'pump_duty': [],
     'predicted_sequence': []  # 儲存8個時間步的預測
 }
+
+# 創建 Model_tester 物件
+model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
+
+# 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
+model_tester.start_test(3)  # 這裡選擇隨機變動測試
 
 
 # 主循环
@@ -175,10 +174,7 @@ while True:
         time.sleep(1)  # 控制採樣頻率
 
     except KeyboardInterrupt:
-        print("實驗結束，正在生成圖表...")
-        df = pd.read_csv(f'{prediction_file}')
-        Data_Processor.plot_future_predictions_with_event_markers(df=df)
-        print("圖表已保存，程序已安全退出。")
+        print("實驗結束，程序已安全退出。")
         adam.stop_adam()
         
         break
