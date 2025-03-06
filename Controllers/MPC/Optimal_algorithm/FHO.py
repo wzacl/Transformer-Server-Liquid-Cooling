@@ -10,7 +10,6 @@ import numpy as np
 import time
 import Transformer
 import torch
-from collections import deque
 import Data_Processor as dp
 import math
 import os
@@ -20,7 +19,7 @@ import csv
 
 
 class FirehawkOptimizer:
-    def __init__(self, adam, time_window, num_firehawks=10, max_iter=50, fan_speeds=None, P_max=100, target_temp=25,
+    def __init__(self, adam,sequence_buffer, num_firehawks=10, max_iter=50, fan_speeds=None, P_max=100, target_temp=25,
                  model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/2KWCDU_Transformer_model.pth',
                  scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib',
                  figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/Model_test_change_fan_pump_3.csv'):
@@ -49,58 +48,26 @@ class FirehawkOptimizer:
         self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()
         self.data_processor = dp.Data_Processor(self.scaler_path, self.device)
-        self.history_buffer = deque(maxlen=time_window)  # 時間窗口大小
-        self.data_preparing = True
+        self.sequence_buffer = sequence_buffer
 
-    def preparing_history_buffer(self):
-        """ 更新歷史緩存 """
-        while self.data_preparing:
-            data = [
-                self.adam.buffer[0],  # T_GPU
-                self.adam.buffer[2],  # T_CDU_in
-                self.adam.buffer[4],  # T_env
-                self.adam.buffer[5],  # T_air_in
-                self.adam.buffer[6],  # T_air_out
-                self.adam.buffer[8],  # fan_duty 由訊號擷取器獲取
-                self.adam.buffer[9]   # pump_duty
-            ]
-            current_features = self.data_processor.get_current_features(data)
-            self.history_buffer.append(current_features)
-            if len(self.history_buffer) == self.history_buffer.maxlen:
-                self.data_preparing = False
-        print(f"數據初始化情況: { ['數據準備中' if self.data_preparing else '數據準備完成']}")
 
     def predict_temp(self, fan_speed):
         """ 使用即時預測功能預測 CDU 出水溫度 """
-        # 獲取當前數據
-        if self.data_preparing :
-            self.preparing_history_buffer()
-            return None
-        else:
-            data = [
-                self.adam.buffer[0],  # T_GPU
-                self.adam.buffer[2],  # T_CDU_in
-                self.adam.buffer[4],  # T_env
-                self.adam.buffer[5],  # T_air_in
-                self.adam.buffer[6],  # T_air_out
-                fan_speed,  # fan_duty 由訊號擷取器獲取
-                self.adam.buffer[9]   # pump_duty
-                ]
+            # 獲取當前的序列資料
+        real_time_data = self.sequence_buffer.get_window_data()
+        # 將最後一個時間步的風扇轉速替換為fan_speed這個參數輸入
+        real_time_data[-1][5] = fan_speed
+        # 重新建立20個時間步的序列資料作為模型輸入
+        # 準備輸入數據
+        input_tensor = self.data_processor.prepare_sequence_data(np.array(real_time_data))
 
-        # 更新歷史緩存
-            current_features = self.data_processor.get_current_features(data)
-            self.history_buffer.append(current_features)
-            # 準備輸入數據
-            input_tensor = self.data_processor.prepare_sequence_data(self.history_buffer)
-
-            if input_tensor is not None:
-                with torch.no_grad():
-                    scaled_predictions = self.model(input_tensor, num_steps=1)[0].cpu().numpy()
+        if input_tensor is not None:
+            with torch.no_grad():
+                scaled_predictions = self.model(input_tensor, num_steps=1)[0].cpu().numpy()
                 predicted_temp = self.data_processor.inverse_transform_predictions(scaled_predictions)[0]
-                return predicted_temp
-            else:
-                return None
-
+            return predicted_temp
+        else:
+            return None
 
     def objective_function(self, fan_speed):
         """ 目標函數：最小化溫度誤差 + 風扇功耗 """

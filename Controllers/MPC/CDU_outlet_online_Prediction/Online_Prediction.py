@@ -37,11 +37,14 @@ import csv
 import random
 import Model_tester as mt
 import Data_Processor as dp
+import Sequence_window as window
 
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
+# 創建數據緩存
+time_window = 20  # 時間窗口大小
 
 #設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data'
@@ -54,6 +57,7 @@ adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
+sequence_window = window.SequenceWindow(window_size=time_window, adams_controller=adam)
 
 print('模型初始化.....')
 
@@ -80,6 +84,7 @@ fan2.set_all_duty_cycle(fan_duty)
 # 設置ADAM控制器
 adam.start_adam()
 adam.update_duty_cycles(fan_duty, pump_duty)
+sequence_window.start_sequence_buffer()
 
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -90,9 +95,7 @@ model.eval()
 
 Data_Processor = dp.Data_Processor(scaler_path, device)
 
-# 創建數據緩存
-time_window = 20  # 時間窗口大小
-history_buffer = deque(maxlen=time_window)
+
 
 # 修改預測數據記錄結構
 prediction_data = {
@@ -126,12 +129,8 @@ while True:
             adam.buffer[9]   # pump_duty
         ]
 
-        # 更新歷史緩存 (存入已縮放的數據)
-        current_features = Data_Processor.get_current_features(data)
-        history_buffer.append(current_features)
-        
         # 準備輸入數據 (數據已經過縮放)
-        input_tensor = Data_Processor.prepare_sequence_data(history_buffer)
+        input_tensor = Data_Processor.prepare_sequence_data( Data_Processor.get_current_features(data))
         
         # 當歷史數據足夠時進行預測
         if input_tensor is not None:

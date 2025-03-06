@@ -1,81 +1,66 @@
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
 import joblib
 
+
 class Data_Processor:
-    def __init__(self, scaler_path, device):
+    def __init__(self,scaler_path, device,window_size=20,):
+        """
+        初始化 Data Processor，讀取 Scaler 並確保輸入/輸出縮放正確
+        :param scaler_path: Scaler 檔案路徑
+        :param device: PyTorch 設備（CPU / GPU）
+        """
         self.scaler = joblib.load(scaler_path)
         self.device = device
-        #self.figure_path = figure_path
+        self.window_size = window_size
+
+        # 確保 scaler 是 (input_scaler, output_scaler) 的 tuple
+        if isinstance(self.scaler, tuple) and len(self.scaler) == 2:
+            self.input_scaler, self.output_scaler = self.scaler
+        else:
+            raise ValueError("載入的 scaler 應該是包含 (input_scaler, output_scaler) 的 tuple，但獲得單一 scaler。")
 
     def get_current_features(self, data):
-        """獲取當前時間步的特徵"""
-        if len(data) != 7:
-            raise ValueError(f"輸入數據必須包含7個特徵,當前數據長度為:{len(data)}")
+        """
+        檢查輸入是否為 (20,7)，縮放後轉換為 PyTorch Tensor
+        :param data: 輸入數據 (20, 7)
+        :return: PyTorch Tensor, shape = (1, 20, 7)
+        """
+        if not isinstance(data, np.ndarray):
+            raise TypeError(f"輸入數據類型錯誤，應為 numpy.ndarray，但收到 {type(data)}")
         
-        data_2d = np.array(data).reshape(1, -1)
-        if isinstance(self.scaler, tuple):
-            scaled_data = self.scaler[0].transform(data_2d)
-        else:
-            scaled_data = self.scaler.transform(data_2d)
-        
-        return scaled_data[0]
+        if data.shape != (self.window_size, 7):
+            raise ValueError(f"輸入數據形狀錯誤！應該是 (20, 7)，但收到 {data.shape}")
 
-    def prepare_sequence_data(self, history_buffer):
-        if len(history_buffer) != 20:
-            print(f"歷史數據長度錯誤: {len(history_buffer)}，需要 20 個時間步")
-            return None
-        sequence = np.array(list(history_buffer))
-        if sequence.shape != (20, 7):
-            print(f"數據形狀錯誤: {sequence.shape}，需要 (20, 7)")
-            return None
-        return torch.FloatTensor(sequence).unsqueeze(0).to(self.device)
+        # 確保 scaler.transform() 可用
+        if not hasattr(self.input_scaler, "transform"):
+            raise AttributeError("input_scaler 缺少 transform 方法，請檢查 scaler 是否正確載入。")
+
+        # 縮放輸入數據
+        scaled_data = self.input_scaler.transform(data)
+
+        # 轉換為 PyTorch Tensor 並移動至指定裝置 (CPU/GPU)
+        return torch.FloatTensor(scaled_data).unsqueeze(0).to(self.device)
 
     def inverse_transform_predictions(self, scaled_predictions):
+        """
+        反變換縮放後的預測數據，確保輸出為原始尺度
+        :param scaled_predictions: 縮放後的預測數據 (N, 1)
+        :return: 原始尺度的預測數據 (N,)
+        """
+        if not isinstance(scaled_predictions, np.ndarray):
+            raise TypeError(f"輸入數據類型錯誤，應為 numpy.ndarray，但收到 {type(scaled_predictions)}")
+
+        # 確保數據形狀為 (N, 1)，避免維度錯誤
         if len(scaled_predictions.shape) == 1:
             scaled_predictions = scaled_predictions.reshape(-1, 1)
 
-        if isinstance(self.scaler, tuple):
-            return self.scaler[1].inverse_transform(scaled_predictions)[:, 0]
-        else:
-            return self.scaler.inverse_transform(scaled_predictions)[:, 0]
+        # 確保 output_scaler 具有 inverse_transform 方法
+        if not hasattr(self.output_scaler, "inverse_transform"):
+            raise AttributeError("output_scaler 缺少 inverse_transform 方法，請檢查 scaler 是否正確載入。")
+
+        # 反變換輸出數據
+        return self.output_scaler.inverse_transform(scaled_predictions)[:, 0]
 
 
-'''''
-    def plot_future_predictions_with_event_markers(self, df):
-        """繪製溫度預測曲線，並在風扇與泵轉速變動時標記事件點"""
-        df.columns = df.columns.str.strip()
 
-        fig, ax1 = plt.subplots(figsize=(12, 6))
-        df['elapsed_time'] = np.arange(len(df))
-
-        temp_col = 'actual_temp(CDU_out)' if 'actual_temp(CDU_out)' in df.columns else 'actual_temp'
-        colors = plt.cm.viridis(np.linspace(0, 1, len(df)))
-
-        ax1.plot(df['elapsed_time'], df[temp_col], 'ro-', label='Actual Temperature', linewidth=2, markersize=6)
-
-        for i in range(len(df)):
-            future_steps = range(i, min(i + 8, len(df)))
-            future_values = df.iloc[i, 5:5+len(future_steps)]
-
-            if len(future_steps) > 1:
-                ax1.plot(df['elapsed_time'].iloc[list(future_steps)], future_values, 'o--', color=colors[i], alpha=0.7, markersize=5)
-
-        ax1.set_xlabel('Elapsed Time (seconds)')
-        ax1.set_ylabel('Temperature (°C)')
-        ax1.set_title('Temperature Predictions with Event Markers')
-        ax1.grid(True, linestyle='--', alpha=0.7)
-
-        for i in range(1, len(df)):
-            if df['fan_duty'].iloc[i] != df['fan_duty'].iloc[i - 1]:
-                ax1.axvline(x=df['elapsed_time'].iloc[i], color='blue', linestyle='--', alpha=0.8, label='Fan Change' if 'Fan Change' not in ax1.get_legend_handles_labels()[1] else "")
-                ax1.text(df['elapsed_time'].iloc[i], df[temp_col].iloc[i], 'Fan Change', color='blue', fontsize=9, rotation=45, verticalalignment='bottom')
-
-            if df['pump_duty'].iloc[i] != df['pump_duty'].iloc[i - 1]:
-                ax1.axvline(x=df['elapsed_time'].iloc[i], color='green', linestyle='--', alpha=0.8, label='Pump Change' if 'Pump Change' not in ax1.get_legend_handles_labels()[1] else "")
-                ax1.text(df['elapsed_time'].iloc[i], df[temp_col].iloc[i], 'Pump Change', color='green', fontsize=9, rotation=45, verticalalignment='bottom')
-
-        ax1.legend(loc='upper left', fontsize=9)
-        plt.savefig(self.figure_path)
-'''''
