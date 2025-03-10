@@ -1,0 +1,34 @@
+超參數:
+seq_length: 25
+batch_size: 512
+input_dim: 7
+hidden_dim: 16
+output_dim: 1
+num_layers: 1
+num_heads: 8
+dropout: 0.05
+
+num_epochs: 300
+
+訓練集指標:
+MSE: 0.0500
+RMSE: 0.2235
+MAE: 0.1748
+R2 分数: 0.9928
+
+測試集1指標:
+MSE: 0.1010
+RMSE: 0.3178
+MAE: 0.2560
+R2 分数: 0.9026
+
+測試集2指標:
+MSE: 0.0668
+RMSE: 0.2585
+MAE: 0.2077
+R2 分数: 0.9590
+測試集3指標:
+MSE: 0.1589
+RMSE: 0.3987
+MAE: 0.3016
+R2 分数: 0.7972
