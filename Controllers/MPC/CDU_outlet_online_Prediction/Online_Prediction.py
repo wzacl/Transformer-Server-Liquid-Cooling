@@ -61,14 +61,14 @@ sequence_window = window.SequenceWindow(window_size=time_window, adams_controlle
 
 print('模型初始化.....')
 
+test_model='multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.01_epoch300'
 # 修改模型和scaler路徑
-model_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/2KWCDU_Transformer_model.pth'
+model_path = f'/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/{test_model}/2KWCDU_Transformer_model.pth'
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
 scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
-figure_path = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/temperature_prediction_fan_pump_change_3.png'
 # 檢查文件是否存在,如果不存在則創建並寫入標題行
-prediction_file = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/Model_test_change_fan_pump_3.csv'
+prediction_file = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/{test_model}/Model_test_change_fan_pump_3.csv'
 if not os.path.exists(prediction_file):
     os.makedirs(os.path.dirname(prediction_file), exist_ok=True)
     with open(prediction_file, 'w') as f:
@@ -102,6 +102,7 @@ prediction_data = {
     'timestamp': [],
     'actual_temps(CDU_out)': [],
     'actual_temps(GPU)': [],
+    'T_env': [],
     'fan_duty': [],
     'pump_duty': [],
     'predicted_sequence': []  # 儲存8個時間步的預測
@@ -129,16 +130,20 @@ while True:
             adam.buffer[9]   # pump_duty
         ]
 
-        # 準備輸入數據 (數據已經過縮放)
-        input_tensor = Data_Processor.prepare_sequence_data( Data_Processor.get_current_features(data))
+
+        # 準備輸入數據並縮放
+        input_tensor = Data_Processor.transform_input_data(np.array(sequence_window.get_window_data()))
         
         # 當歷史數據足夠時進行預測
         if input_tensor is not None:
             
             # 執行預測
             with torch.no_grad():
+                inference_start_time = time.time()  # 記錄推論開始時間
                 scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
-                print(f"scaled_predictions 形狀: {scaled_predictions.shape}")
+                inference_end_time = time.time()  # 記錄推論結束時間
+                inference_duration = inference_end_time - inference_start_time  # 計算推論時間
+
 
             # 將預測結果轉換回原始範圍
             predicted_sequence = Data_Processor.inverse_transform_predictions(scaled_predictions)
@@ -148,12 +153,10 @@ while True:
             current_time = time.time()
             
             # 將數據保存到 prediction_data 字典中
-            prediction_data['timestamp'].append(current_time)
-            prediction_data['actual_temps(CDU_out)'].append(adam.buffer[3])  # T_CDU_out 位於索引3
-            prediction_data['actual_temps(GPU)'].append(data[0])  # T_GPU 位於索引0
-            prediction_data['fan_duty'].append(adam.buffer[8])  # fan_duty 位於索引8
-            prediction_data['pump_duty'].append(adam.buffer[9])  # pump_duty 位於索引9
-            prediction_data['predicted_sequence'].append(predicted_sequence)
+            keys = ['timestamp', 'actual_temps(CDU_out)', 'actual_temps(GPU)', 'T_env', 'fan_duty', 'pump_duty', 'predicted_sequence']
+            values = [current_time, adam.buffer[3], data[0], data[2], adam.buffer[8], adam.buffer[9], predicted_sequence]
+            for key, value in zip(keys, values):
+                prediction_data[key].append(value)
             
             # 寫入預測數據到CSV檔案
             with open(prediction_file, 'a', newline='') as f:
@@ -168,6 +171,8 @@ while True:
             print(f"當前晶片溫度:     {data[0]:.2f}°C")
             print("\n==================== 預測結果 ====================")
             print(f"未來8步預測溫度: {predicted_sequence}")
+            print(f"scaled_predictions 形狀: {scaled_predictions.shape}")
+            print(f"模型推論時間: {inference_duration:.4f} 秒")  # 打印推論時間
 
         
         time.sleep(1)  # 控制採樣頻率

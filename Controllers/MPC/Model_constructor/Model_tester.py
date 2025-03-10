@@ -1,6 +1,5 @@
 import numpy as np
 import time
-import random
 
 class Model_tester:
     def __init__(self, fan1, fan2, pump, adam):
@@ -10,11 +9,14 @@ class Model_tester:
         self.adam = adam
         self.test_mode = None  # 1: 只變動風扇, 2: 只變動泵, 3: 隨機變動
         self.start_time = None
-        self.wait_time = 20  # 初始等待 20 秒
+        self.wait_time = 40  # 初始等待 20 秒
         self.run_time = None
         self.device_type = None  # 記錄目前變動的是風扇還是泵
         self.has_changed = False
         self.phase = "wait"  # "wait" = 等待 20 秒, "running" = 變動後開始計時
+        self.fan_duty_sequence = [30, 60, 50, 60, 70, 60, 100, 60]
+        self.pump_duty_sequence = [40, 60, 50, 60, 70, 60, 100, 60]
+        self.current_index = 0
 
     def start_test(self, mode):
         """啟動指定測試模式"""
@@ -28,7 +30,7 @@ class Model_tester:
             print(f"[測試 1] 先維持原風扇轉速 20 秒，然後變動風扇")
 
         elif mode == 2:
-            self.run_time = 30  # 變動後運行 30 秒
+            self.run_time = 50  # 變動後運行 50 秒
             self.device_type = "pump"
             print(f"[測試 2] 先維持原泵轉速 20 秒，然後變動泵")
 
@@ -60,17 +62,19 @@ class Model_tester:
         # 先等待 20 秒，然後開始變動設備轉速
         if self.phase == "wait" and elapsed_time >= self.wait_time:
             if self.test_mode == 1:
-                new_fan_duty = int(np.random.choice(np.arange(30, 100, 10)))
+                new_fan_duty = self.fan_duty_sequence[self.current_index]
                 self.fan1.set_all_duty_cycle(new_fan_duty)
                 self.fan2.set_all_duty_cycle(new_fan_duty)
                 self.adam.update_duty_cycles(fan_duty=new_fan_duty)
                 print(f"[測試 1] 風扇轉速變動至 {new_fan_duty}%，開始運行 180 秒")
+                self.current_index = (self.current_index + 1) % len(self.fan_duty_sequence)
 
             elif self.test_mode == 2:
-                new_pump_duty = int(np.random.choice(np.arange(40, 100, 10)))
+                new_pump_duty = self.pump_duty_sequence[self.current_index]
                 self.pump.set_duty_cycle(new_pump_duty)
                 self.adam.update_duty_cycles(pump_duty=new_pump_duty)
                 print(f"[測試 2] 泵轉速變動至 {new_pump_duty}%，開始運行 30 秒")
+                self.current_index = (self.current_index + 1) % len(self.pump_duty_sequence)
 
             # 進入正式運行階段
             self.start_time = time.time()  # 重新計時

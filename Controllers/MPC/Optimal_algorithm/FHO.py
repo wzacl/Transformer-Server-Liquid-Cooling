@@ -54,12 +54,11 @@ class FirehawkOptimizer:
     def predict_temp(self, fan_speed):
         """ 使用即時預測功能預測 CDU 出水溫度 """
             # 獲取當前的序列資料
-        real_time_data = self.sequence_buffer.get_window_data()
+        real_time_data = np.array(self.sequence_buffer.get_window_data())
         # 將最後一個時間步的風扇轉速替換為fan_speed這個參數輸入
         real_time_data[-1][5] = fan_speed
-        # 重新建立20個時間步的序列資料作為模型輸入
         # 準備輸入數據
-        input_tensor = self.data_processor.prepare_sequence_data(np.array(real_time_data))
+        input_tensor = self.data_processor.transform_input_data(real_time_data)
 
         if input_tensor is not None:
             with torch.no_grad():

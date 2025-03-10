@@ -20,7 +20,7 @@ class Data_Processor:
         else:
             raise ValueError("載入的 scaler 應該是包含 (input_scaler, output_scaler) 的 tuple，但獲得單一 scaler。")
 
-    def get_current_features(self, data):
+    def transform_input_data(self, data):
         """
         檢查輸入是否為 (20,7)，縮放後轉換為 PyTorch Tensor
         :param data: 輸入數據 (20, 7)
