@@ -36,8 +36,7 @@ import pandas as pd
 import csv
 import random
 import Model_tester as mt
-import Data_Processor as dp
-import Sequence_window as window
+import Sequence_Window_Processor
 
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
@@ -47,9 +46,9 @@ pump_port = '/dev/ttyAMA3'
 time_window = 20  # 時間窗口大小
 
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/Model_test(sequence_window_20)'
 #設置實驗資料檔案名稱
-exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)_test_fan_pump_3.csv'
+exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)_pump_test.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -57,8 +56,6 @@ adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
-sequence_window = window.SequenceWindow(window_size=time_window, adams_controller=adam)
-
 print('模型初始化.....')
 
 test_model='multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.01_epoch300'
@@ -68,7 +65,7 @@ model_path = f'/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Mo
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
 scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
 # 檢查文件是否存在,如果不存在則創建並寫入標題行
-prediction_file = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/{test_model}/Model_test_change_fan_pump_3.csv'
+prediction_file = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/{test_model}/Model_test_pump_test.csv'
 if not os.path.exists(prediction_file):
     os.makedirs(os.path.dirname(prediction_file), exist_ok=True)
     with open(prediction_file, 'w') as f:
@@ -84,7 +81,7 @@ fan2.set_all_duty_cycle(fan_duty)
 # 設置ADAM控制器
 adam.start_adam()
 adam.update_duty_cycles(fan_duty, pump_duty)
-sequence_window.start_sequence_buffer()
+time.sleep(2)
 
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -93,7 +90,12 @@ model = Transformer.TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, nu
 model.load_state_dict(model_state_dict)
 model.eval()
 
-Data_Processor = dp.Data_Processor(scaler_path, device)
+seq_window_processor = Sequence_Window_Processor.SequenceWindowProcessor(
+    window_size=time_window,
+    adams_controller=adam,  # 你的 ADAMScontroller 物件
+    scaler_path=scaler_path,  # 你的 Scaler 檔案
+    device="cpu"
+)
 
 
 
@@ -112,14 +114,28 @@ prediction_data = {
 model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
 
 # 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(3)  # 這裡選擇隨機變動測試
+model_tester.start_test(2)  # 這裡選擇隨機變動測試
 
 
-# 主循环
 while True:
-    model_tester.update_test()
     try:
-        # 獲取當前數據並確保有7個特徵
+        model_tester.update_test()
+
+        # ✅ 更新來自 ADAMS 的數據，確保滑動窗口數據是最新的
+        seq_window_processor.update_from_adam()
+
+        # ✅ 確保 window_data 已準備好
+        input_tensor = seq_window_processor.get_window_data()
+        if input_tensor is None:
+            print("⏳ 數據不足，等待數據收集中...")
+            time.sleep(1)
+            continue  # 等待數據準備好後再進行預測
+
+        print(f"🚀 獲取 window_data 成功, shape: {input_tensor.shape}")  # Debug
+        if input_tensor.nelement() == 0:  # 確保 Tensor 不是空的
+            raise ValueError("❌ input_tensor 是空的！")
+
+        # ✅ 獲取當前數據
         data = [
             adam.buffer[0],  # T_GPU
             adam.buffer[2],  # T_CDU_in
@@ -130,62 +146,56 @@ while True:
             adam.buffer[9]   # pump_duty
         ]
 
+        # ✅ 執行預測
+        with torch.no_grad():
+            inference_start_time = time.time()  # 記錄推論開始時間
+            scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
+            inference_end_time = time.time()  # 記錄推論結束時間
+            inference_duration = inference_end_time - inference_start_time  # 計算推論時間
 
-        # 準備輸入數據並縮放
-        input_tensor = Data_Processor.transform_input_data(np.array(sequence_window.get_window_data()))
-        
-        # 當歷史數據足夠時進行預測
-        if input_tensor is not None:
-            
-            # 執行預測
-            with torch.no_grad():
-                inference_start_time = time.time()  # 記錄推論開始時間
-                scaled_predictions = model(input_tensor, num_steps=8)[0].cpu().numpy()
-                inference_end_time = time.time()  # 記錄推論結束時間
-                inference_duration = inference_end_time - inference_start_time  # 計算推論時間
+        # ✅ 將預測結果轉換回原始範圍
+        predicted_sequence = seq_window_processor.scaler[1].inverse_transform(scaled_predictions.reshape(-1, 1)).flatten()
 
+        # ✅ 記錄結果
+        current_time = time.time()
 
-            # 將預測結果轉換回原始範圍
-            predicted_sequence = Data_Processor.inverse_transform_predictions(scaled_predictions)
-            
-            # 記錄結果
-            # 獲取當前時間
-            current_time = time.time()
-            
-            # 將數據保存到 prediction_data 字典中
-            keys = ['timestamp', 'actual_temps(CDU_out)', 'actual_temps(GPU)', 'T_env', 'fan_duty', 'pump_duty', 'predicted_sequence']
-            values = [current_time, adam.buffer[3], data[0], data[2], adam.buffer[8], adam.buffer[9], predicted_sequence]
-            for key, value in zip(keys, values):
-                prediction_data[key].append(value)
-            
-            # 寫入預測數據到CSV檔案
-            with open(prediction_file, 'a', newline='') as f:
-                writer = csv.writer(f)
-                timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))
-                row = [timestamp, adam.buffer[3], data[0], adam.buffer[8], adam.buffer[9]] + [f'{temp:.2f}' for temp in predicted_sequence]
-                writer.writerow(row)
-            
-            # 打印預測結果
-            print("==================== 系統狀態 ====================")
-            print(f"當前出口溫度:     {adam.buffer[3]:.2f}°C")
-            print(f"當前晶片溫度:     {data[0]:.2f}°C")
-            print("\n==================== 預測結果 ====================")
-            print(f"未來8步預測溫度: {predicted_sequence}")
-            print(f"scaled_predictions 形狀: {scaled_predictions.shape}")
-            print(f"模型推論時間: {inference_duration:.4f} 秒")  # 打印推論時間
+        # ✅ 記錄到 prediction_data 字典
+        keys = ['timestamp', 'actual_temps(CDU_out)', 'actual_temps(GPU)', 'T_env', 'fan_duty', 'pump_duty', 'predicted_sequence']
+        values = [current_time, adam.buffer[3], data[0], data[2], adam.buffer[8], adam.buffer[9], predicted_sequence]
+        for key, value in zip(keys, values):
+            prediction_data[key].append(value)
 
-        
+        # ✅ 寫入預測數據到 CSV 檔案
+        with open(prediction_file, 'a', newline='') as f:
+            writer = csv.writer(f)
+            timestamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))
+            row = [timestamp, adam.buffer[3], data[0], adam.buffer[8], adam.buffer[9]] + [f'{temp:.2f}' for temp in predicted_sequence]
+            writer.writerow(row)
+
+        # ✅ 打印預測結果
+        print("==================== 系統狀態 ====================")
+        print(f"當前出口溫度:     {adam.buffer[3]:.2f}°C")
+        print(f"當前晶片溫度:     {data[0]:.2f}°C")
+        print("\n==================== 預測結果 ====================")
+        print(f"未來8步預測溫度: {predicted_sequence}")
+        print(f"scaled_predictions 形狀: {scaled_predictions.shape}")
+        print(f"模型推論時間: {inference_duration:.4f} 秒")  # 打印推論時間
+
         time.sleep(1)  # 控制採樣頻率
 
+    except ValueError as e:
+        print(f"⚠️ 錯誤: {str(e)}")
+        time.sleep(1)
+
     except KeyboardInterrupt:
-        print("實驗結束，程序已安全退出。")
+        print("🔴 實驗結束，程序已安全退出。")
         adam.stop_adam()
-        
         break
 
     except Exception as e:
-        print(f"預測錯誤: {str(e)}")
+        print(f"❌ 預測錯誤: {str(e)}")
         time.sleep(1)
+
 
 
 
