@@ -200,17 +200,18 @@ while model_tester.phase != "end":
         time.sleep(1)
 
     except KeyboardInterrupt:
-        adam.stop_adam()
-        fan1.set_all_duty_cycle(60)
-        fan2.set_all_duty_cycle(60)
-        pump.set_duty_cycle(60)
-        print("🔴 實驗結束，程序已安全退出。")
+
+        print("手動結束實驗，等待程序安全退出...")
         break
 
     except Exception as e:
         print(f"❌ 預測錯誤: {str(e)}")
         time.sleep(1)
-
+adam.stop_adam()
+fan1.set_all_duty_cycle(60)
+fan2.set_all_duty_cycle(60)
+pump.set_duty_cycle(60)
+print("🔴 實驗結束，程序已安全退出。")
 
 
 
