@@ -19,7 +19,7 @@ import csv
 
 
 class FirehawkOptimizer:
-    def __init__(self, adam,sequence_buffer, num_firehawks=10, max_iter=50, fan_speeds=None, P_max=100, target_temp=25,
+    def __init__(self, adam, num_firehawks=10, max_iter=50, fan_speeds=None, P_max=100, target_temp=25,
                  window_size=20,
                  model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/2KWCDU_Transformer_model.pth',
                  scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib',
@@ -48,7 +48,7 @@ class FirehawkOptimizer:
         self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
         self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()
-        self.data_processor = swp.Sequence_Window_Processor(window_size=window_size, scaler_path=self.scaler_path, device=self.device,adam=self.adam)
+        self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, scaler_path=self.scaler_path, device=self.device,adams_controller=self.adam)
 
 
     def predict_temp(self, fan_speed,data):
@@ -86,7 +86,7 @@ class FirehawkOptimizer:
             costs = []
             for fan in firehawks:
                 self.data_processor.override_fan_speed = fan  # 覆蓋風扇轉速
-                predicted_temp = self.predict_temp_with_fixed_data(fan, fixed_window_data)  # 透過固定數據進行預測
+                predicted_temp = self.predict_temp(fan, fixed_window_data)  # 透過固定數據進行預測
                 
                 if predicted_temp is not None:
                     cost = self.objective_function(fan, predicted_temp)
