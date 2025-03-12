@@ -35,6 +35,7 @@ class DataAcquisition:
         self.csv_headers = csv_headers or ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
         self.th_buffer = None
         self.th_adam = None
+        self.data_updated_event = threading.Event()  # ✅ 新增事件
     
 
     def setup_directories(self):
@@ -66,6 +67,7 @@ class DataAcquisition:
                         #print(tabulate(table_data, headers=table_header, tablefmt='grid'))
                         writer.writerow(new_data)
                         csv_file.flush()
+                        self.data_updated_event.set()  # ✅ 設置事件
                     time.sleep(1)  # 這個變數控制暫存器儲存資訊的頻率
         except Exception as e:
             print(f"Error writing to CSV file: {e}")

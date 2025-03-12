@@ -10,7 +10,7 @@ import numpy as np
 import time
 import Transformer
 import torch
-import Data_Processor as dp
+import Sequence_Window_Processor as swp
 import math
 import os
 import csv
@@ -20,6 +20,7 @@ import csv
 
 class FirehawkOptimizer:
     def __init__(self, adam,sequence_buffer, num_firehawks=10, max_iter=50, fan_speeds=None, P_max=100, target_temp=25,
+                 window_size=20,
                  model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/2KWCDU_Transformer_model.pth',
                  scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib',
                  figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/Model_test_change_fan_pump_3.csv'):
@@ -47,18 +48,16 @@ class FirehawkOptimizer:
         self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
         self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()
-        self.data_processor = dp.Data_Processor(self.scaler_path, self.device)
-        self.sequence_buffer = sequence_buffer
+        self.data_processor = swp.Sequence_Window_Processor(window_size=window_size, scaler_path=self.scaler_path, device=self.device,adam=self.adam)
 
 
-    def predict_temp(self, fan_speed):
+    def predict_temp(self, fan_speed,data):
         """ 使用即時預測功能預測 CDU 出水溫度 """
             # 獲取當前的序列資料
-        real_time_data = np.array(self.sequence_buffer.get_window_data())
+        data[-1][5]=fan_speed
         # 將最後一個時間步的風扇轉速替換為fan_speed這個參數輸入
-        real_time_data[-1][5] = fan_speed
         # 準備輸入數據
-        input_tensor = self.data_processor.transform_input_data(real_time_data)
+        input_tensor = self.data_processor.transform_input_data(data)
 
         if input_tensor is not None:
             with torch.no_grad():
@@ -75,13 +74,28 @@ class FirehawkOptimizer:
         return temp_error + power_fan
 
     def optimize(self):
-        """ 執行火鷹最佳化過程，使用即時預測更新風扇轉速 """
+        """ 執行火鷹最佳化過程，確保整個搜索過程基於同一組數據 """
+        # 先從 sequence_window 取得當前時間點的固定數據
+        fixed_window_data = self.data_processor.get_window_data(normalize=False)
+
         # 初始化火鷹位置（隨機選擇風扇轉速）
         firehawks = np.random.choice(self.fan_speeds, self.num_firehawks)
 
         for iteration in range(self.max_iter):
-            # 使用即時預測更新風扇轉速
-            costs = np.array([self.objective_function(fan) for fan in firehawks if self.predict_temp(fan) is not None])
+            # 使用固定的 window_data，避免搜尋過程中數據變動
+            costs = []
+            for fan in firehawks:
+                self.data_processor.override_fan_speed = fan  # 覆蓋風扇轉速
+                predicted_temp = self.predict_temp_with_fixed_data(fan, fixed_window_data)  # 透過固定數據進行預測
+                
+                if predicted_temp is not None:
+                    cost = self.objective_function(fan, predicted_temp)
+                    costs.append(cost)
+            
+            if not costs:
+                print("❌ 無有效數據，跳過此迭代")
+                continue
+
             best_idx = np.argmin(costs)  # 找到最佳火鷹
             best_firehawk = firehawks[best_idx]
 
@@ -101,7 +115,10 @@ class FirehawkOptimizer:
 
             print(f"Iteration {iteration+1}: Best Fan Speed = {self.best_solution}%, Cost = {self.best_cost:.2f}")
 
+
+
         return self.best_solution, self.best_cost
+
 
     def plot_cost(self):
         """ 繪製成本收斂圖 """
