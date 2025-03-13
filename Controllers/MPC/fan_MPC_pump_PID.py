@@ -52,23 +52,26 @@ adam.update_duty_cycles(fan_duty, pump_duty)
 window_size = 20
 sequence_window = sw.SequenceWindow(window_size=window_size, adams_controller=adam)
 sequence_window.start_sequence_buffer()
-
-fho_optimizer = fho.FirehawkOptimizer(adam=adam, sequence_buffer=sequence_window, num_firehawks=10, max_iter=50, P_max=100, target_temp=25)
+#設置FHO優化器
+num_firehawks = 3
+max_iter = 10
+P_max = 100
+target_temp = 68
+fho_optimizer = fho.FirehawkOptimizer(adam=adam, window_size=window_size, num_firehawks=num_firehawks, max_iter=max_iter, P_max=P_max, target_temp=target_temp)
 
 
 #設置風扇控制頻率
 control_frequency = 3  # 控制頻率 (s)
 
 #設置泵PID控制器
-pump_pid = Pump_pid.GB_PID_pump(target=25, Guaranteed_Bounded_PID_range=0.5, sample_time=1)
-
+counter = 0
+GPU_target = 68
+sample_time = 1  # 定義取樣時間
+Guaranteed_Bounded_PID_range = 0.5
+Controller = Pump_pid.GB_PID_pump(target=GPU_target, Guaranteed_Bounded_PID_range=Guaranteed_Bounded_PID_range, sample_time=sample_time)
+adam.start_adam()
 while True:
-    counter = 0
-    GPU_target = 68
-    sample_time = 1  # 定義取樣時間
-    Guaranteed_Bounded_PID_range = 0.5
-    Controller = Pump_pid.GB_PID_pump(target, Guaranteed_Bounded_PID_range, sample_time)
-    adam.start_adam()
+
     Temperatures = adam.buffer.tolist()
     if any(Temperatures):
         # 獲取溫度數據
@@ -86,14 +89,19 @@ while True:
             
         # 更新泵的轉速
         pump.set_duty_cycle(pump_duty)
-        adam.update_duty_cycles(pump_duty)
+        adam.update_duty_cycles(pump_duty=pump_duty)
 
         counter += 1
 
     # 使用新的控制頻率來調整FHO的優化頻率
     if counter % control_frequency == 0:
         optimal_fan_speed, optimal_cost = fho_optimizer.optimize()
-        fan1.set_all_duty_cycle(optimal_fan_speed)
-        fan2.set_all_duty_cycle(optimal_fan_speed)
-        adam.update_duty_cycles(fan_duty)
-        print(f"Optimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
+        if optimal_fan_speed is not None:
+            fan1.set_all_duty_cycle(optimal_fan_speed)
+            fan2.set_all_duty_cycle(optimal_fan_speed)
+            adam.update_duty_cycles(fan_duty=optimal_fan_speed)
+            print(f"Optimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
+        else:
+            print("❌ 數據蒐集中，等待數據蒐集完成...")
+            time.sleep(control_frequency)
+

@@ -66,9 +66,10 @@ class SequenceWindowProcessor:
         """
         with self.buffer_lock:
             if self.data_count < self.window_size:
-                print(f"⏳ 數據未準備好，當前 {self.data_count}/{self.window_size}，請稍等...")
+                print(f"⏳ 當前資料室窗內資料量 {self.data_count}/{self.window_size}，請稍等...")
                 return None
-            
+            else:
+                print(f"✅ 資料室窗內資料量充足，將開始進行預測與最佳化")
             data = self.buffer.copy()
             if normalize and hasattr(self.input_scaler, "transform"):
                 data = self.input_scaler.transform(data)
