@@ -61,12 +61,9 @@ control_frequency = 3  # 控制頻率 (s)
 
 while True:
     optimal_fan_speed, optimal_cost = fho_optimizer.optimize()
-    if optimal_fan_speed is not None:
-        fan1.set_all_duty_cycle(optimal_fan_speed)
-        fan2.set_all_duty_cycle(optimal_fan_speed)
-        print(f"Optimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
-    else:
-        print("❌ 數據蒐集中，等待數據蒐集完成")
-        time.sleep(control_frequency)
+    fan1.set_all_duty_cycle(optimal_fan_speed)
+    fan2.set_all_duty_cycle(optimal_fan_speed)
+    print(f"Optimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
+    time.sleep(control_frequency)
 
 

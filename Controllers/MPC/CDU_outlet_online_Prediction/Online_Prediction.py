@@ -44,12 +44,12 @@ fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 # 創建數據緩存
-time_window = 20  # 時間窗口大小
-
+time_window = 25  # 時間窗口大小
+test_model='multi_seq25_steps8_batch512_hidden16_layers1_heads8_dropout0.05_epoch300'
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/Model_test(sequence_window_20)'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data'
 #設置實驗資料檔案名稱
-exp_var = 'Real_time_Prediction_data_GPU15KW_1(285V_8A)_pump_test.csv'
+exp_var = 'GPU15KW_1(285V_8A)_test_fan_pump_3.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -59,14 +59,14 @@ fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
 print('模型初始化.....')
 
-test_model='multi_seq20_steps8_batch512_hidden8_layers1_heads8_dropout0.01_epoch300'
+
 # 修改模型和scaler路徑
 model_path = f'/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/{test_model}/2KWCDU_Transformer_model.pth'
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
 scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
 # 檢查文件是否存在,如果不存在則創建並寫入標題行
-prediction_file = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/{test_model}/Model_test_pump_test.csv'
+prediction_file = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/{test_model}/Model_test_{exp_var}.csv'
 if not os.path.exists(prediction_file):
     os.makedirs(os.path.dirname(prediction_file), exist_ok=True)
     with open(prediction_file, 'w') as f:
@@ -87,7 +87,7 @@ time.sleep(2)
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
-model = Transformer.TransformerModel(input_dim=7, hidden_dim=8, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
+model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, output_dim=1, num_layers=1, num_heads=8, dropout=0.05)
 model.load_state_dict(model_state_dict)
 model.eval()
 
@@ -115,7 +115,7 @@ prediction_data = {
 model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
 
 # 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(2)  # 這裡選擇隨機變動測試
+model_tester.start_test(3,900)  # 這裡選擇隨機變動測試
 
 
 while model_tester.phase != "end":
@@ -123,10 +123,10 @@ while model_tester.phase != "end":
         model_tester.update_test()
 
         # ✅ 更新來自 ADAMS 的數據，確保滑動窗口數據是最新的
-        seq_window_processor.update_from_adam()
+        #seq_window_processor.update_from_adam()
 
         # ✅ 確保 window_data 已準備好
-        input_tensor = seq_window_processor.get_window_data()
+        input_tensor = seq_window_processor.get_window_data(normalize=True)
 
         if input_tensor is None:  # 修正條件，應該等待數據準備好
             time.sleep(1)
@@ -200,8 +200,9 @@ while model_tester.phase != "end":
         time.sleep(1)
 
     except KeyboardInterrupt:
-
-        print("手動結束實驗，等待程序安全退出...")
+        print("實驗結束，程序已安全退出。")
+        adam.stop_adam()
+        
         break
 
     except Exception as e:
@@ -212,6 +213,13 @@ fan1.set_all_duty_cycle(60)
 fan2.set_all_duty_cycle(60)
 pump.set_duty_cycle(60)
 print("🔴 實驗結束，程序已安全退出。")
+
+
+adam.stop_adam()
+fan1.set_all_duty_cycle(60)
+fan2.set_all_duty_cycle(60)
+pump.set_duty_cycle(60)
+
 
 
 

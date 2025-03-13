@@ -11,6 +11,7 @@ import time
 import Transformer
 import torch
 import Sequence_Window_Processor as swp
+import Sequence_Window_Processor as swp
 import math
 import os
 import csv
@@ -57,8 +58,10 @@ class FirehawkOptimizer:
         """ 使用即時預測功能預測 CDU 出水溫度 """
             # 獲取當前的序列資料
         data[-1][5]=fan_speed
+        data[-1][5]=fan_speed
         # 將最後一個時間步的風扇轉速替換為fan_speed這個參數輸入
         # 準備輸入數據
+        input_tensor = self.data_processor.transform_input_data(data)
         input_tensor = self.data_processor.transform_input_data(data)
 
         if input_tensor is not None:
@@ -76,6 +79,10 @@ class FirehawkOptimizer:
         return temp_error + power_fan
 
     def optimize(self):
+        """ 執行火鷹最佳化過程，確保整個搜索過程基於同一組數據 """
+        # 先從 sequence_window 取得當前時間點的固定數據
+        fixed_window_data = self.data_processor.get_window_data(normalize=False)
+
         """ 執行火鷹最佳化過程，確保整個搜索過程基於同一組數據 """
         # 先從 sequence_window 取得當前時間點的固定數據
         fixed_window_data = self.data_processor.get_window_data(normalize=False)
@@ -122,6 +129,7 @@ class FirehawkOptimizer:
                 print(f"Iteration {iteration+1}: Best Fan Speed = {self.best_solution}%, Cost = {self.best_cost:.2f}")
                 
                 return self.best_solution, self.best_cost
+
 
 
     def plot_cost(self):

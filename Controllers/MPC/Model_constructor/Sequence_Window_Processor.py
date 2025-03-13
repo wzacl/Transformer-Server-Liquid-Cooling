@@ -72,7 +72,7 @@ class SequenceWindowProcessor:
                 print(f"✅ 資料室窗內資料量充足，將開始進行預測與最佳化")
             data = self.buffer.copy()
             if normalize and hasattr(self.input_scaler, "transform"):
-                data = self.input_scaler.transform(data)
+                data = torch.tensor(self.input_scaler.transform(data), dtype=torch.float32).unsqueeze(0).to(self.device)
             return data
 
     def inverse_transform_predictions(self, scaled_predictions):

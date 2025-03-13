@@ -103,5 +103,5 @@ while True:
             print(f"Optimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
         else:
             print("❌ 數據蒐集中，等待數據蒐集完成...")
+            
             time.sleep(control_frequency)
-
