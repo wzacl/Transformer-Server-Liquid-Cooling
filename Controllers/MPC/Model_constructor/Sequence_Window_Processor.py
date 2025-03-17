@@ -5,7 +5,7 @@ import joblib
 import torch
 
 class SequenceWindowProcessor:
-    def __init__(self, window_size=20, adams_controller=None, scaler_path=None, device="cpu"):
+    def __init__(self, window_size=30, adams_controller=None, scaler_path=None, device="cpu"):
         self.window_size = window_size
         self.adam = adams_controller
         self.device = device

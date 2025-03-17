@@ -44,12 +44,12 @@ fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 # 創建數據緩存
-time_window = 25  # 時間窗口大小
-test_model='multi_seq25_steps8_batch512_hidden16_layers1_heads8_dropout0.05_epoch300'
+time_window = 35  # 時間窗口大小
+test_model='multi_seq35_steps8_batch512_hidden32_layers1_heads8_dropout0.01_epoch400'
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data'
+exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/{test_model}'
 #設置實驗資料檔案名稱
-exp_var = 'GPU15KW_1(285V_8A)_test_fan_pump_3.csv'
+exp_var = 'GPU15KW_1(285V_8A)_random_test.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -87,7 +87,7 @@ time.sleep(2)
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
-model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, output_dim=1, num_layers=1, num_heads=8, dropout=0.05)
+model = Transformer.TransformerModel(input_dim=7, hidden_dim=32, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
 model.load_state_dict(model_state_dict)
 model.eval()
 

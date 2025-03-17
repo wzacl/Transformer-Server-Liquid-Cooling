@@ -11,7 +11,6 @@ import time
 import Transformer
 import torch
 import Sequence_Window_Processor as swp
-import Sequence_Window_Processor as swp
 import math
 import os
 import csv
@@ -21,10 +20,10 @@ import csv
 
 class FirehawkOptimizer:
     def __init__(self, adam, num_firehawks=10, max_iter=50, fan_speeds=None, P_max=100, target_temp=25,
-                 window_size=20,
-                 model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/2KWCDU_Transformer_model.pth',
+                 window_size=30,
+                 model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/multi_seq30_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch300/2KWCDU_Transformer_model.pth',
                  scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib',
-                 figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/Model_test_change_fan_pump_3.csv'):
+                 figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data'):
         """
         火鷹演算法 (FHO) 初始化
         :param num_firehawks: 火鷹數量 (搜尋代理)
@@ -46,23 +45,20 @@ class FirehawkOptimizer:
         self.figure_path = figure_path
         self.adam = adam
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=8, 
+        self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, 
         output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
         self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()
-        self.data_processor = swp.Sequence_Window_Processor(window_size=window_size, 
-        scaler_path=self.scaler_path, device=self.device,adam=self.adam)
+        self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, 
+        adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)
 
 
-    def predict_temp(self, fan_speed,data):
-        """ 使用即時預測功能預測 CDU 出水溫度 """
-            # 獲取當前的序列資料
-        data[-1][5]=fan_speed
-        data[-1][5]=fan_speed
-        # 將最後一個時間步的風扇轉速替換為fan_speed這個參數輸入
+    def predict_temp(self, fan_speed, data):
+        # 应该先创建副本再修改
+        data_copy = data.copy()
+        data_copy[-1][5] = fan_speed  # 修改副本
         # 準備輸入數據
-        input_tensor = self.data_processor.transform_input_data(data)
-        input_tensor = self.data_processor.transform_input_data(data)
+        input_tensor = self.data_processor.transform_input_data(data_copy)
 
         if input_tensor is not None:
             with torch.no_grad():
@@ -72,17 +68,13 @@ class FirehawkOptimizer:
         else:
             return None
 
-    def objective_function(self, fan_speed):
+    def objective_function(self, fan_speed,predicted_temp):
         """ 目標函數：最小化溫度誤差 + 風扇功耗 """
-        temp_error = np.linalg.norm(self.predict_temp(fan_speed) - self.target_temp) ** 2
-        power_fan = (fan_speed / 100) ** 3 * self.P_max
-        return temp_error + power_fan
+        temp_error = np.linalg.norm(predicted_temp - self.target_temp) ** 2
+        #power_fan = (fan_speed / 100) ** 3 * self.P_max
+        return temp_error 
 
     def optimize(self):
-        """ 執行火鷹最佳化過程，確保整個搜索過程基於同一組數據 """
-        # 先從 sequence_window 取得當前時間點的固定數據
-        fixed_window_data = self.data_processor.get_window_data(normalize=False)
-
         """ 執行火鷹最佳化過程，確保整個搜索過程基於同一組數據 """
         # 先從 sequence_window 取得當前時間點的固定數據
         fixed_window_data = self.data_processor.get_window_data(normalize=False)
@@ -99,7 +91,7 @@ class FirehawkOptimizer:
                 costs = []
                 for fan in firehawks:
                     self.data_processor.override_fan_speed = fan  # 覆蓋風扇轉速
-                    predicted_temp = self.predict_temp_with_fixed_data(fan, fixed_window_data)  # 透過固定數據進行預測
+                    predicted_temp = self.predict_temp(fan, fixed_window_data)  # 透過固定數據進行預測
                     
                     if predicted_temp is not None:
                         cost = self.objective_function(fan, predicted_temp)
@@ -127,8 +119,9 @@ class FirehawkOptimizer:
                 self.cost_history.append(self.best_cost)
 
                 print(f"Iteration {iteration+1}: Best Fan Speed = {self.best_solution}%, Cost = {self.best_cost:.2f}")
-                
-                return self.best_solution, self.best_cost
+            
+            # 循环结束后返回结果
+            return self.best_solution, self.best_cost
 
 
 
@@ -143,7 +136,7 @@ class FirehawkOptimizer:
 
 # 使用 FHO 來最佳化風扇轉速
 if __name__ == "__main__":
-    optimizer = FirehawkOptimizer(num_firehawks=2, max_iter=10, target_temp=25)
+    optimizer = FirehawkOptimizer(num_firehawks=2, max_iter=10, target_temp=25, P_max=100)
     optimal_fan_speed, optimal_cost = optimizer.optimize()
     optimizer.plot_cost()
 
