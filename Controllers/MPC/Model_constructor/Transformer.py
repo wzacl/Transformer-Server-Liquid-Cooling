@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import math
 
+# 位置編碼類
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
         super(PositionalEncoding, self).__init__()
@@ -78,8 +79,11 @@ class TransformerModel(nn.Module):
         src_embedded = self.pos_encoder(src_embedded)
         memory = self.transformer_encoder(src_embedded)  # 生成 memory
 
-        # 初始化解码器输入为全零，确保形状與 src 的 batch_size 匹配
-        tgt = torch.zeros(src.size(0), 1, self.output_dim).to(src.device)
+        # 初始化解码器输入为最后一个T_CDU_out值
+        # 获取序列中最后一个T_CDU_out值的索引（假设T_CDU_out是第二个特征）
+        t_cdu_out_idx = 1  # 根据features列表中T_CDU_out的位置调整
+        last_t_cdu_out = src[:, -1:, t_cdu_out_idx:t_cdu_out_idx+1]  # 获取最后一个时间步的T_CDU_out值
+        tgt = last_t_cdu_out  # 使用最后一个T_CDU_out值作为初始输入
         
         # 解碼器
         outputs = []

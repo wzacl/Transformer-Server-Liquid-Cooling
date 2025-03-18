@@ -46,8 +46,8 @@ class SequenceWindowProcessor:
         with self.buffer_lock:
             raw_data = np.array([
                 self.adam.buffer[0],  # T_GPU
+                self.adam.buffer[3],  # T_CDU_out
                 self.adam.buffer[2],  # T_CDU_in
-                self.adam.buffer[4],  # T_env
                 self.adam.buffer[5],  # T_air_in
                 self.adam.buffer[6],  # T_air_out
                 self.adam.buffer[8],  # fan_duty
@@ -62,7 +62,7 @@ class SequenceWindowProcessor:
         """
         取得時間窗口數據
         :param normalize: 若為 True，則回傳正規化後的數據
-        :return: numpy array (window_size, 7)
+        :return: numpy array (window_size, 8)
         """
         with self.buffer_lock:
             if self.data_count < self.window_size:

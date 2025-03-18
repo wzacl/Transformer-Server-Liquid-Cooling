@@ -43,13 +43,31 @@ adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
-# 創建數據緩存
-time_window = 35  # 時間窗口大小
-test_model='multi_seq35_steps8_batch512_hidden32_layers1_heads8_dropout0.01_epoch400'
+#選擇模型
+test_model='no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400'
+
+# 從模型名稱中提取超參數
+model_params = {}
+params_str = test_model.split('_')
+for param in params_str:
+    if 'seq' in param:
+        model_params['seq_len'] = int(param.replace('seq', ''))
+    elif 'hidden' in param:
+        model_params['hidden_dim'] = int(param.replace('hidden', ''))
+    elif 'layers' in param:
+        model_params['num_layers'] = int(param.replace('layers', ''))
+    elif 'heads' in param:
+        model_params['num_heads'] = int(param.replace('heads', ''))
+    elif 'dropout' in param:
+        model_params['dropout'] = float(param.replace('dropout', ''))
+
+# 更新時間窗口大小
+time_window = model_params['seq_len']
+
 #設置實驗資料放置的資料夾
 exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/{test_model}'
 #設置實驗資料檔案名稱
-exp_var = 'GPU15KW_1(285V_8A)_random_test.csv'
+exp_var = 'GPU15KW_1(285V_8A)_power_test.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -64,7 +82,7 @@ print('模型初始化.....')
 model_path = f'/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/{test_model}/2KWCDU_Transformer_model.pth'
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
-scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/1.5_1KWscalers.jlib' 
+scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib' 
 # 檢查文件是否存在,如果不存在則創建並寫入標題行
 prediction_file = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction/{test_model}/Model_test_{exp_var}.csv'
 if not os.path.exists(prediction_file):
@@ -87,7 +105,14 @@ time.sleep(2)
 # 加載模型和scaler
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
-model = Transformer.TransformerModel(input_dim=7, hidden_dim=32, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
+model = Transformer.TransformerModel(
+    input_dim=7, 
+    hidden_dim=model_params['hidden_dim'], 
+    output_dim=1, 
+    num_layers=model_params['num_layers'], 
+    num_heads=model_params['num_heads'], 
+    dropout=model_params['dropout']
+)
 model.load_state_dict(model_state_dict)
 model.eval()
 
@@ -115,7 +140,7 @@ prediction_data = {
 model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
 
 # 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(3,900)  # 這裡選擇隨機變動測試
+model_tester.start_test(6, 400)  # 這裡選擇隨機變動測試
 
 
 while model_tester.phase != "end":
@@ -136,6 +161,7 @@ while model_tester.phase != "end":
         data = [
             adam.buffer[0],  # T_GPU
             adam.buffer[2],  # T_CDU_in
+            adam.buffer[3],  # T_CDU_out
             adam.buffer[4],  # T_env
             adam.buffer[5],  # T_air_in
             adam.buffer[6],  # T_air_out
@@ -171,11 +197,11 @@ while model_tester.phase != "end":
         system_status_data = [
             ["🌡️ 當前出口溫度", f"{adam.buffer[3]:.2f}°C"],
             ["💻 當前晶片溫度", f"{data[0]:.2f}°C"],
-            ["🌍 當前環境溫度", f"{data[2]:.2f}°C"],
-            ["💨 當前進風溫度", f"{data[3]:.2f}°C"],
-            ["🌬️ 當前出風溫度", f"{data[4]:.2f}°C"],
-            ["🔄 當前風扇轉速", f"{data[5]:.2f}%"],
-            ["💧 當前泵轉速", f"{data[6]:.2f}%"]
+            ["🌍 當前環境溫度", f"{data[3]:.2f}°C"],
+            ["💨 當前進風溫度", f"{data[4]:.2f}°C"],
+            ["🌬️ 當前出風溫度", f"{data[5]:.2f}°C"],
+            ["🔄 當前風扇轉速", f"{data[6]:.2f}%"],
+            ["💧 當前泵轉速", f"{data[7]:.2f}%"]
         ]
 
         # 預測結果數據
