@@ -1,3 +1,4 @@
+#usr/bin/env python3
 import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
@@ -26,9 +27,9 @@ pump_port = '/dev/ttyAMA3'
 #設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data'
 #設置實驗資料檔案名稱
-exp_var = 'Fan_MPC_data_GPU15KW_1(285V_8A)_FHO_test_1.csv'
+exp_var = 'Fan_MPC_data_GPU1.5KW_1(285V_8A)_FHO_test_2.csv'
 #設置實驗資料標題
-custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
+custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
 
 adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=adam_port, csv_headers=custom_headers)
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
@@ -50,14 +51,14 @@ adam.update_duty_cycles(fan_duty, pump_duty)
 #設置FHO優化器
 num_firehawks = 7
 max_iter = 3
-P_max = 100
+P_max = 500
 target_temp = 28
 fho_optimizer = fho.FirehawkOptimizer(adam=adam, num_firehawks=num_firehawks, max_iter=max_iter, 
 P_max=P_max, target_temp=target_temp)
 
 
 #設置風扇控制頻率
-control_frequency = 3  # 控制頻率 (s)
+control_frequency = 4  # 控制頻率 (s)
 
 #設置泵PID控制器
 counter = 0

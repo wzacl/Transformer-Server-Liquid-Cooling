@@ -1,10 +1,11 @@
+#usr/bin/env python3
 '''''
 本程式碼主要用於資料蒐集
 
 本研究中的晶片瓦數對應的電源供應器參數設置如下
 1KW：220V_8A
 1.5KW：285V_8A
-1.9KW：332V_8A
+1.85KW：325V_8A
 
 對應的風扇與泵最低轉速如下
 泵：40% duty cycle
@@ -31,13 +32,17 @@ fan2_port = '/dev/ttyAMA4'
 #設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Model_Training_data'
 #設置實驗資料檔案名稱
-exp_var = 'Training_data_GPU1KW_1.8(330V_8A)'
+exp_var = 'Training_data_GPU1.9KW(332V_8A)'
 #設置保存進度的jason文件名稱
-experiment_progress='Training_data_GPU1KW_1.8(330V_8A).json'
+experiment_progress=f'{exp_var}.json'
 #選取變數設置的csv檔案    
-settings_file = '/home/inventec/Desktop/2KWCDU_修改版本/Experimental_parameter_setting/training_data_final_1.csv'
+if exp_var == 'Training_data_GPU1.9KW(332V_8A)':
+    settings_file = 'Experimental_parameter_setting/experiment_setting_cycle.csv'
+else:
+    print("請輸入正確的實驗變數")
+    sys.exit()  # 如果實驗變數錯誤，直接退出程式
 #設定檔案標題
-custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt']
+custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
 
 # 創建控制器物件
 adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=adam_port, csv_headers=custom_headers)
@@ -139,7 +144,7 @@ finally:
     adam.stop_threading('buffer')
     adam.stop_threading('adam')
     adam.closeport()
-    fan1.set_all_duty_cycle(100)
-    fan2.set_all_duty_cycle(100)
+    fan1.set_all_duty_cycle(60)
+    fan2.set_all_duty_cycle(60)
     pump.set_duty_cycle(100)
     print('實驗結束.')
