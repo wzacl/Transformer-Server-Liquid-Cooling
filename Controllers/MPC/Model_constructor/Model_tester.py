@@ -19,10 +19,10 @@ class Model_tester:
         self.total_run_time = None  # 總運行時長
         self.elapsed_total_time = 0  # 記錄已執行時間
         #self.custom_fan_duty_sequence = [60,70,80,90,100,90,80,70,60,50,40,30,40,50,60]  # 自訂風扇轉速序列
-        self.custom_fan_duty_sequence = [30,40,50,60,50,40,30,60,70,80,90,100,90,80,70,60]  # 自訂風扇轉速序列
+        self.custom_fan_duty_sequence = [30,35,40,45,50,55,60,50,55,40,35,30,45,60,75,85,90,100,95,80,70,60]  # 自訂風扇轉速序列
         #self.custom_pump_duty_sequence = [60,70,80,90,100,90,80,70,60,50,40]  # 自訂泵轉速序列
-        self.custom_pump_duty_sequence = [30,40,50,60,50,40,30,60,70,80,90,100,90,80,70,60]  # 自訂泵轉速序列
-        self.custom_time_sequence = [15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15]  # 自訂時間序列
+        self.custom_pump_duty_sequence = [40,55,40,45,50,55,60,50,55,40,35,30,45,60,75,85,90,100,95,80,70,60]  # 自訂泵轉速序列
+        self.custom_time_sequence = [15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15,15]  # 自訂時間序列
         self.fixed_fan_duty = 60  # 固定風扇轉速
         self.fixed_pump_duty = 60  # 固定泵轉速
 
@@ -154,7 +154,7 @@ class Model_tester:
 
                         if self.device_type == "fan":
                             self.run_time = np.random.randint(6, 181)  # 風扇運行 6~180 秒
-                            new_fan_duty = int(np.random.choice(np.arange(30, 101, 10)))  # 風扇轉速 30~100%
+                            new_fan_duty = int(np.random.choice(np.arange(30, 101, 5)))  # 風扇轉速 30~100%
                             self.fan1.set_all_duty_cycle(new_fan_duty)
                             self.fan2.set_all_duty_cycle(new_fan_duty)
                             self.adam.update_duty_cycles(fan_duty=new_fan_duty)
@@ -162,7 +162,7 @@ class Model_tester:
 
                         else:
                             self.run_time = np.random.randint(6, 41)  # 泵運行 6~40 秒
-                            new_pump_duty = int(np.random.choice(np.arange(40, 101, 10)))  # 泵轉速 40~100%
+                            new_pump_duty = int(np.random.choice(np.arange(40, 101, 5)))  # 泵轉速 40~100%
                             self.pump.set_duty_cycle(new_pump_duty)
                             self.adam.update_duty_cycles(pump_duty=new_pump_duty)
                             print(f"[測試 3] 隨機變動泵轉速至 {new_pump_duty}%，運行 {self.run_time} 秒")

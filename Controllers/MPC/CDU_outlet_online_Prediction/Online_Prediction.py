@@ -67,7 +67,7 @@ time_window = model_params['seq_len']
 #設置實驗資料放置的資料夾
 exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/{test_model}'
 #設置實驗資料檔案名稱
-exp_var = 'GPU15KW_1(285V_8A)_power_test.csv'
+exp_var = 'GPU15KW_1(285V_8A)_pump_5%_test'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -140,7 +140,7 @@ prediction_data = {
 model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
 
 # 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(6, 400)  # 這裡選擇隨機變動測試
+model_tester.start_test(5)  # 這裡選擇隨機變動測試
 
 
 while model_tester.phase != "end":
