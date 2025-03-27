@@ -31,9 +31,9 @@ fan2_port = '/dev/ttyAMA4'
 #設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Model_Training_data'
 #設置實驗資料檔案名稱
-exp_var = 'Training_data_GPU15KW_1(285V_8A)'
+exp_var = 'Training_data_GPU1KW_1.8(330V_8A)'
 #設置保存進度的jason文件名稱
-experiment_progress='Training_data_GPU15KW_1(285V_8A).json'
+experiment_progress='Training_data_GPU1KW_1.8(330V_8A).json'
 #選取變數設置的csv檔案    
 settings_file = '/home/inventec/Desktop/2KWCDU_修改版本/Experimental_parameter_setting/training_data_final_1.csv'
 #設定檔案標題
