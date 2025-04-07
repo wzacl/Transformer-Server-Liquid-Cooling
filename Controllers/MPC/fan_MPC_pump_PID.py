@@ -53,6 +53,10 @@ num_firehawks = 7
 max_iter = 3
 P_max = 500
 target_temp = 28
+
+# 使用帶有溫度預測平滑處理功能的FHO優化器
+# 平滑處理會修正預測序列中的首點跳變問題，使溫度變化更符合物理特性
+print("⚡ 初始化FHO優化器 (搭載預測溫度平滑處理功能)")
 fho_optimizer = fho.FirehawkOptimizer(adam=adam, num_firehawks=num_firehawks, max_iter=max_iter, 
 P_max=P_max, target_temp=target_temp)
 
@@ -122,6 +126,15 @@ try:
 except Exception as e:
     print(f"發生錯誤: {e}")
 finally:
+    # 輸出平滑處理統計資訊
+    try:
+        print("\n================================================")
+        print("📈 輸出預測溫度平滑處理統計")
+        fho_optimizer.print_smoothing_statistics()
+        print("================================================\n")
+    except Exception as e:
+        print(f"無法輸出平滑處理統計: {e}")
+        
     # 清理資源
     adam.stop_adam()
     fan1.set_all_duty_cycle(20)

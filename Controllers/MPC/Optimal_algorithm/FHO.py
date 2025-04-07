@@ -52,6 +52,22 @@ class FirehawkOptimizer:
         self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, 
         adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)
         self.previous_fan_speed = None  # 添加这行来记录上一次的风扇转速
+        
+        # 添加平滑處理統計和記錄
+        self.smoothing_stats = {
+            'total_predictions': 0,
+            'smoothed_predictions': 0,
+            'total_smoothing_magnitude': 0.0,
+            'max_smoothing': 0.0,
+            'history': []  # 保存每次平滑的詳細信息
+        }
+        
+        # 創建平滑記錄檔案
+        self.smoothing_log_path = os.path.join('/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data', 'smoothing_analysis.csv')
+        if not os.path.exists(self.smoothing_log_path):
+            with open(self.smoothing_log_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['時間戳', '風扇轉速', '原始預測', '平滑後預測', '差值', '趨勢'])
 
 
     def predict_temp(self, fan_speed, data):
@@ -65,9 +81,81 @@ class FirehawkOptimizer:
             with torch.no_grad():
                 scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()  # 預測8步
                 predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions)  # 返回所有8步預測
-            return predicted_temps
+                
+                # 使用平滑處理函數處理預測結果
+                smoothed_temps = self.data_processor.smooth_predictions(predicted_temps)
+                
+                # 計算平滑處理的差異
+                diff = np.max(np.abs(smoothed_temps - predicted_temps))
+                
+                # 更新統計數據
+                self.smoothing_stats['total_predictions'] += 1
+                if diff > 0.05:
+                    self.smoothing_stats['smoothed_predictions'] += 1
+                    self.smoothing_stats['total_smoothing_magnitude'] += diff
+                    self.smoothing_stats['max_smoothing'] = max(self.smoothing_stats['max_smoothing'], diff)
+                    
+                    # 記錄平滑詳情
+                    trend = "上升" if self.data_processor.temp_trend == 1 else "下降" if self.data_processor.temp_trend == -1 else "穩定"
+                    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    
+                    # 添加到歷史記錄
+                    self.smoothing_stats['history'].append({
+                        'timestamp': timestamp,
+                        'fan_speed': fan_speed,
+                        'original': predicted_temps[0],
+                        'smoothed': smoothed_temps[0],
+                        'diff': diff,
+                        'trend': trend
+                    })
+                    
+                    # 寫入CSV日誌
+                    try:
+                        with open(self.smoothing_log_path, 'a', newline='') as f:
+                            writer = csv.writer(f)
+                            writer.writerow([
+                                timestamp, 
+                                fan_speed, 
+                                predicted_temps[0], 
+                                smoothed_temps[0], 
+                                diff, 
+                                trend
+                            ])
+                    except Exception as e:
+                        print(f"❌ 無法寫入平滑處理記錄: {e}")
+                    
+                    # 在日誌中記錄平滑前後的差異
+                    print(f"🔄 平滑處理調整了預測溫度 (風扇轉速: {fan_speed}%)")
+                    print(f"   原始預測: {predicted_temps[:3]}...")
+                    print(f"   平滑後預測: {smoothed_temps[:3]}...")
+                    print(f"   溫度趨勢: {trend}, 調整量: {diff:.3f}°C")
+                
+                return smoothed_temps
         else:
             return None
+            
+    def print_smoothing_statistics(self):
+        """
+        打印平滑處理統計數據
+        """
+        if self.smoothing_stats['total_predictions'] == 0:
+            print("尚無預測資料")
+            return
+            
+        smoothing_rate = (self.smoothing_stats['smoothed_predictions'] / 
+                          self.smoothing_stats['total_predictions'] * 100)
+        
+        avg_magnitude = 0
+        if self.smoothing_stats['smoothed_predictions'] > 0:
+            avg_magnitude = (self.smoothing_stats['total_smoothing_magnitude'] / 
+                            self.smoothing_stats['smoothed_predictions'])
+        
+        print("\n📊 溫度預測平滑處理統計")
+        print(f"總預測次數: {self.smoothing_stats['total_predictions']}")
+        print(f"平滑處理次數: {self.smoothing_stats['smoothed_predictions']} ({smoothing_rate:.1f}%)")
+        print(f"平均調整量: {avg_magnitude:.3f}°C")
+        print(f"最大調整量: {self.smoothing_stats['max_smoothing']:.3f}°C")
+        print(f"詳細記錄已保存至: {self.smoothing_log_path}")
 
     def objective_function(self, fan_speed, predicted_temps):
         """ 目標函數：考慮未來8步的溫度誤差、預測準確度變化和轉速懲罰 """
@@ -233,6 +321,17 @@ class FirehawkOptimizer:
                 self.cost_history.append(self.best_cost)
 
                 print(f"Iteration {iteration+1}: Best Fan Speed = {self.best_solution}%, Cost = {self.best_cost:.2f}")
+            
+            # 在完成優化後輸出簡短的平滑處理統計
+            if self.smoothing_stats['smoothed_predictions'] > 0:
+                smoothing_rate = (self.smoothing_stats['smoothed_predictions'] / 
+                                  self.smoothing_stats['total_predictions'] * 100)
+                avg_magnitude = (self.smoothing_stats['total_smoothing_magnitude'] / 
+                                self.smoothing_stats['smoothed_predictions'])
+                                
+                print("\n📊 溫度預測平滑處理簡報")
+                print(f"預測平滑比例: {smoothing_rate:.1f}% (共{self.smoothing_stats['smoothed_predictions']}次)")
+                print(f"平均調整量: {avg_magnitude:.3f}°C, 最大調整: {self.smoothing_stats['max_smoothing']:.3f}°C")
             
             # 循环结束后返回结果
             return self.best_solution, self.best_cost
