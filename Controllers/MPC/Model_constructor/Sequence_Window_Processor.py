@@ -90,8 +90,6 @@ class SequenceWindowProcessor:
         :param smooth: 是否進行平滑處理，預設為True
         :return: 反標準化（並可能平滑處理）後的預測數據
         """
-        if len(scaled_predictions.shape) == 1:
-            scaled_predictions = scaled_predictions.reshape(-1, 1)
 
         if hasattr(self.output_scaler, "inverse_transform"):
             inverse_data = self.output_scaler.inverse_transform(scaled_predictions)[:, 0]

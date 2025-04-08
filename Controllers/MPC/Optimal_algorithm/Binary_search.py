@@ -63,110 +63,62 @@ class BinarySearchOptimizer:
         adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)
         self.previous_fan_speed = None  # 記錄上一次的風扇轉速
         
-        # 添加平滑處理統計和記錄
-        self.smoothing_stats = {
-            'total_predictions': 0,
-            'smoothed_predictions': 0,
-            'total_smoothing_magnitude': 0.0,
-            'max_smoothing': 0.0,
-            'history': []  # 保存每次平滑的詳細信息
-        }
-        
-        # 創建平滑記錄檔案
-        os.makedirs(self.figure_path, exist_ok=True)
-        self.smoothing_log_path = os.path.join(self.figure_path, 'smoothing_analysis.csv')
-        if not os.path.exists(self.smoothing_log_path):
-            with open(self.smoothing_log_path, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['時間戳', '風扇轉速', '原始預測', '平滑後預測', '差值', '趨勢'])
 
 
     def predict_temp(self, fan_speed, data):
-        # 應該先創建副本再修改
-        data_copy = data.copy()
-        data_copy[-1][5] = fan_speed  # 修改副本
-        # 準備輸入數據
-        input_tensor = self.data_processor.transform_input_data(data_copy)
+        """預測溫度，完全參考 FHO 的實現方式"""
+        try:
+            # 檢查輸入參數
+            if fan_speed is None or data is None:
+                print("❌ 預測輸入參數不得為None")
+                return None
+            
+            # 確保fan_speed是數字
+            try:
+                fan_speed = float(fan_speed)
+            except (TypeError, ValueError):
+                print(f"❌ 風扇轉速必須是數字，收到: {type(fan_speed)}")
+                return None
+            
+            # 創建數據副本
+            data_copy = data.copy()
+            # 修改風扇轉速
+            data_copy[-1][5] = fan_speed
+            
+            # 準備輸入數據
+            input_tensor = self.data_processor.transform_input_data(data_copy)
 
-        if input_tensor is not None:
-            with torch.no_grad():
-                scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()  # 預測8步
-                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions)  # 返回所有8步預測
-                
-                # 使用平滑處理函數處理預測結果
-                smoothed_temps = self.data_processor.smooth_predictions(predicted_temps)
-                
-                # 計算平滑處理的差異
-                diff = np.max(np.abs(smoothed_temps - predicted_temps))
-                
-                # 更新統計數據
-                self.smoothing_stats['total_predictions'] += 1
-                if diff > 0.05:
-                    self.smoothing_stats['smoothed_predictions'] += 1
-                    self.smoothing_stats['total_smoothing_magnitude'] += diff
-                    self.smoothing_stats['max_smoothing'] = max(self.smoothing_stats['max_smoothing'], diff)
+            if input_tensor is not None:
+                with torch.no_grad():
+                    # 預測8步
+                    scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()
                     
-                    # 記錄平滑詳情
-                    trend = "上升" if self.data_processor.temp_trend == 1 else "下降" if self.data_processor.temp_trend == -1 else "穩定"
-                    timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    # 先進行不帶平滑的預測
+                    predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)
                     
-                    # 添加到歷史記錄
-                    self.smoothing_stats['history'].append({
-                        'timestamp': timestamp,
-                        'fan_speed': fan_speed,
-                        'original': predicted_temps[0],
-                        'smoothed': smoothed_temps[0],
-                        'diff': diff,
-                        'trend': trend
-                    })
+                    # 再進行帶平滑的預測
+                    smoothed_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=True)
                     
-                    # 寫入CSV日誌
-                    try:
-                        with open(self.smoothing_log_path, 'a', newline='') as f:
-                            writer = csv.writer(f)
-                            writer.writerow([
-                                timestamp, 
-                                fan_speed, 
-                                predicted_temps[0], 
-                                smoothed_temps[0], 
-                                diff, 
-                                trend
-                            ])
-                    except Exception as e:
-                        print(f"❌ 無法寫入平滑處理記錄: {e}")
+                    # 計算平滑處理的差異
+                    diff = np.max(np.abs(smoothed_temps - predicted_temps))
                     
-                    # 在日誌中記錄平滑前後的差異
-                    print(f"🔄 平滑處理調整了預測溫度 (風扇轉速: {fan_speed}%)")
+                    # 輸出調試信息
+                    print(f"🔄 溫度預測結果 (風扇轉速: {fan_speed}%)")
                     print(f"   原始預測: {predicted_temps[:3]}...")
                     print(f"   平滑後預測: {smoothed_temps[:3]}...")
-                    print(f"   溫度趨勢: {trend}, 調整量: {diff:.3f}°C")
-                
-                return smoothed_temps
-        else:
+                    print(f"   調整量: {diff:.3f}°C")
+                    
+                    return smoothed_temps
             return None
             
-    def print_smoothing_statistics(self):
-        """
-        打印平滑處理統計數據
-        """
-        if self.smoothing_stats['total_predictions'] == 0:
-            print("尚無預測資料")
-            return
+        except Exception as e:
+            print(f"❌ 預測過程發生錯誤: {str(e)}")
+            print(f"輸入數據類型: {type(data)}")
+            if hasattr(data, 'shape'):
+                print(f"輸入數據形狀: {data.shape}")
+            return None
             
-        smoothing_rate = (self.smoothing_stats['smoothed_predictions'] / 
-                          self.smoothing_stats['total_predictions'] * 100)
-        
-        avg_magnitude = 0
-        if self.smoothing_stats['smoothed_predictions'] > 0:
-            avg_magnitude = (self.smoothing_stats['total_smoothing_magnitude'] / 
-                            self.smoothing_stats['smoothed_predictions'])
-        
-        print("\n📊 溫度預測平滑處理統計")
-        print(f"總預測次數: {self.smoothing_stats['total_predictions']}")
-        print(f"平滑處理次數: {self.smoothing_stats['smoothed_predictions']} ({smoothing_rate:.1f}%)")
-        print(f"平均調整量: {avg_magnitude:.3f}°C")
-        print(f"最大調整量: {self.smoothing_stats['max_smoothing']:.3f}°C")
-        print(f"詳細記錄已保存至: {self.smoothing_log_path}")
+
 
     def objective_function(self, fan_speed, predicted_temps):
         """ 目標函數：考慮未來8步的溫度誤差、預測準確度變化和轉速懲罰 """
@@ -445,6 +397,10 @@ class BinarySearchOptimizer:
                     break
             
             # 轉速變化平滑處理
+            if best_fan_speed is None:
+                print("⚠️ 搜索過程未找到有效的風扇轉速")
+                return None, None
+        
             final_fan_speed = best_fan_speed
             if self.previous_fan_speed is not None:
                 # 限制單次變化幅度
@@ -468,19 +424,12 @@ class BinarySearchOptimizer:
             
             print(f"✅ 二分搜索完成 | 最佳風扇轉速: {final_fan_speed}% | 成本: {best_cost:.2f}")
             
-            # 在完成優化後輸出簡短的平滑處理統計
-            if self.smoothing_stats['smoothed_predictions'] > 0:
-                smoothing_rate = (self.smoothing_stats['smoothed_predictions'] / 
-                                  self.smoothing_stats['total_predictions'] * 100)
-                avg_magnitude = (self.smoothing_stats['total_smoothing_magnitude'] / 
-                                self.smoothing_stats['smoothed_predictions'])
-                                
-                print("\n📊 溫度預測平滑處理簡報")
-                print(f"預測平滑比例: {smoothing_rate:.1f}% (共{self.smoothing_stats['smoothed_predictions']}次)")
-                print(f"平均調整量: {avg_magnitude:.3f}°C, 最大調整: {self.smoothing_stats['max_smoothing']:.3f}°C")
-            
-            # 返回結果
-            return final_fan_speed, best_cost
+            # 返回結果前確保值是數字型別
+            try:
+                return int(final_fan_speed), float(best_cost)
+            except (TypeError, ValueError):
+                print("❌ 風扇轉速轉換失敗，返回None")
+                return None, None
 
     def plot_cost(self):
         """ 繪製成本收斂圖 """
@@ -529,3 +478,14 @@ if __name__ == "__main__":
     optimal_fan_speed, optimal_cost = optimizer.optimize()
     optimizer.plot_cost()
     print(f"\n最佳風扇轉速: {optimal_fan_speed}% | 成本: {optimal_cost:.2f}")
+
+    if optimal_fan_speed is not None:
+        try:
+            fan1.set_all_duty_cycle(optimal_fan_speed)
+            fan2.set_all_duty_cycle(optimal_fan_speed)
+            adam.update_duty_cycles(fan_duty=optimal_fan_speed)
+            print(f"✅ 風扇優化完成 | 最佳風扇轉速: {optimal_fan_speed}% | 成本: {optimal_cost:.2f}")
+        except (TypeError, ValueError) as e:
+            print(f"❌ 風扇轉速設定失敗: {e}")
+    else:
+        print("❌ 數據蒐集中，等待數據蒐集完成...")

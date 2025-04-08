@@ -65,9 +65,9 @@ for param in params_str:
 time_window = model_params['seq_len']
 
 #設置實驗資料放置的資料夾
-exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/{test_model}'
+exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data(真實roll_data)/{test_model}'
 #設置實驗資料檔案名稱
-exp_var = 'GPU15KW_1(285V_8A)_pump_5%_test'
+exp_var = 'GPU15KW_1(285V_8A)_fan_5%_smooth_test'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -140,7 +140,7 @@ prediction_data = {
 model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
 
 # 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(5)  # 這裡選擇隨機變動測試
+model_tester.start_test(4)  # 這裡選擇隨機變動測試
 
 
 while model_tester.phase != "end":
@@ -177,7 +177,7 @@ while model_tester.phase != "end":
             inference_duration = inference_end_time - inference_start_time
 
         # 將預測結果轉換回原始範圍
-        predicted_sequence = seq_window_processor.scaler[1].inverse_transform(scaled_predictions.reshape(-1, 1)).flatten()
+        predicted_sequence = seq_window_processor.inverse_transform_predictions(scaled_predictions.reshape(-1, 1),smooth=True).flatten()
 
         # 記錄結果
         current_time = time.time()
