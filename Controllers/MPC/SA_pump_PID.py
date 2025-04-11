@@ -16,7 +16,7 @@ import math
 import os
 import csv
 import random
-import Optimal_algorithm.SLSQP_Optimizer as SLSQP_Optimizer
+import Optimal_algorithm.SA_Optimizer as SA_Optimizer
 import GB_PID_pump as Pump_pid
 
 adam_port = '/dev/ttyUSB0'
@@ -25,9 +25,9 @@ fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SLSQP_data'
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data'
 #設置實驗資料檔案名稱
-exp_var = 'Fan_MPC_data_GPU1.5KW_1(285V_8A)_SLSQP_test_smooth.csv'
+exp_var = 'Fan_MPC_data_GPU1.5KW_1(285V_8A)_SA_test_smooth_6.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
 
@@ -56,9 +56,9 @@ target_temp = 30
 # 使用帶有溫度預測平滑處理功能的PO優化器
 # 平滑處理會修正預測序列中的首點跳變問題，使溫度變化更符合物理特性
 print("="*60)
-print("⚡ 初始化SLSQP優化器")
+print("⚡ 初始化SA優化器")
 print("="*60)
-slsqp_optimizer = SLSQP_Optimizer.SLSQP_Optimizer(
+sa_optimizer = SA_Optimizer.SA_Optimizer(
     adam=adam, 
     window_size=35, 
     P_max=P_max, 
@@ -67,7 +67,7 @@ slsqp_optimizer = SLSQP_Optimizer.SLSQP_Optimizer(
 
 
 #設置風扇控制頻率
-control_frequency = 4  # 控制頻率 (s)
+control_frequency = 5  # 控制頻率 (s)
 
 #設置泵PID控制器
 counter = 0
@@ -105,7 +105,7 @@ try:
                 
                 # 使用 GB_PID 計算控制輸出
                 control_temp = Controller.GB_PID(T_GPU, GPU_target)
-                pump_duty = round(Controller.controller(control_temp) / 10) * 10
+                pump_duty = round(Controller.controller(control_temp) / 5) * 5
                     
                 # 更新泵的轉速
                 pump.set_duty_cycle(pump_duty)
@@ -117,9 +117,9 @@ try:
                 # 使用新的控制頻率來調整PO的優化頻率
                 if counter % control_frequency == 0:
                     print("-"*60)
-                    print("🔄 執行風扇SLSQP優化...")
+                    print("🔄 執行風扇SA優化...")
                     start_time = time.time()
-                    optimal_fan_speed, optimal_cost = slsqp_optimizer.optimize()
+                    optimal_fan_speed, optimal_cost = sa_optimizer.optimize()
                     optimization_time = time.time() - start_time
                     if optimal_fan_speed is not None:
                         fan1.set_all_duty_cycle(int(optimal_fan_speed))

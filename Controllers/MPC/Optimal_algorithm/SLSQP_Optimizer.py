@@ -15,6 +15,7 @@ import scipy.optimize as optimize
 import math
 import os
 import csv
+import random
 
 def time_window_weight(step, total_steps=8):
     """計算時間窗口權重，使用高斯分佈"""
@@ -47,13 +48,12 @@ class SLSQP_Optimizer:
         
         # MPC 相關參數
         self.prediction_horizon = 8
-        self.control_horizon = 1
-        self.max_speed_change = 20  # 最大轉速變化限制
+        self.max_speed_change = 10  # 最大轉速變化限制
         
         # 目標函數權重
-        self.w_temp = 2.0      # 溫度誤差權重
-        self.w_speed = 1.0     # 速度變化權重
-        self.w_power = 0.5     # 功率消耗權重
+        self.w_temp = 10.0      # 溫度誤差權重
+        self.w_speed = 0     # 速度變化權重
+        self.w_power = 0.00001     # 功率消耗權重
         
         # 模型相關
         self.model_path = model_path
@@ -68,6 +68,8 @@ class SLSQP_Optimizer:
         self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, 
         adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)
         self.previous_fan_speed = None  # 記錄上一次的風扇轉速
+        
+
 
     def predict_temp(self, fan_speed, data):
         """使用 Transformer 模型進行溫度預測"""
@@ -89,27 +91,20 @@ class SLSQP_Optimizer:
             
         # 溫度控制項
         temp_error = 0
+        # 只計算預測序列中後三位的溫度差
         for i, temp in enumerate(predicted_temps):
-            time_weight = time_window_weight(i, self.prediction_horizon)
-            temp_diff = abs(temp - self.target_temp)
-            # 非對稱懲罰：過熱比過冷更嚴重
-            if temp > self.target_temp:
-                temp_error += time_weight * (temp_diff ** 2) * 1.5
-            else:
-                temp_error += time_weight * (temp_diff ** 2)
-        
-        # 速度平滑項
-        speed_smooth = 0
-        if self.previous_fan_speed is not None:
-            speed_change = fan_speed - self.previous_fan_speed
-            speed_smooth = speed_change ** 2
+            # 只處理預測序列中的後三位
+            if i >= len(predicted_temps) - 3:
+                temp_diff = abs(temp - self.target_temp)
+                temp_error += temp_diff
+
         
         # 功率消耗項
         power_consumption = (fan_speed/100) ** 3 * self.P_max
         
+        
         # 總成本
         total_cost = (self.w_temp * temp_error + 
-                     self.w_speed * speed_smooth + 
                      self.w_power * power_consumption)
         
         return total_cost
@@ -146,10 +141,11 @@ class SLSQP_Optimizer:
             x0 = [self.previous_fan_speed]
         else:
             # 根據當前溫度設定初始轉速
-            if current_temp > self.target_temp:
+            if abs(current_temp - self.target_temp) > 2:
                 x0 = [min(100, max(60, 60 + (current_temp - self.target_temp) * 10))]
             else:
                 x0 = [50]
+        
         
         try:
             # 使用 SLSQP 優化
@@ -159,7 +155,7 @@ class SLSQP_Optimizer:
                 method='SLSQP',
                 bounds=bounds,
                 constraints=constraints,
-                options={'maxiter': 100, 'ftol': 1e-6}
+                options={'maxiter': 1000, 'ftol': 1e-3}
             )
             
             if result.success:
@@ -175,6 +171,8 @@ class SLSQP_Optimizer:
                 self.previous_fan_speed = optimal_speed
                 
                 print(f"✅ 最佳化成功: 風扇轉速 = {optimal_speed}%, 目標函數值 = {result.fun:.2f}")
+                
+                
                 return optimal_speed, result.fun
             else:
                 print("❌ 最佳化失敗，保持當前轉速")
@@ -184,22 +182,9 @@ class SLSQP_Optimizer:
             print(f"❌ 最佳化過程出錯: {str(e)}")
             return self.previous_fan_speed, float('inf')
 
-    def plot_cost(self):
-        """繪製成本收斂圖"""
-        plt.figure(figsize=(10, 6))
-        plt.plot(range(len(self.cost_history)), self.cost_history, 'b-o', label="成本")
-        plt.xlabel("迭代次數")
-        plt.ylabel("目標函數成本")
-        plt.title("SLSQP最佳化 - 成本收斂圖")
-        plt.grid(True)
-        plt.legend()
-        
-        timestamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-        save_path = os.path.join(self.figure_path, f"slsqp_cost_{timestamp}.png")
-        plt.savefig(save_path)
-        print(f"🖼️ 成本收斂圖已保存至: {save_path}")
-        
-        plt.show()
+
+
+
 
 # 測試代碼
 if __name__ == "__main__":
