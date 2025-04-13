@@ -32,13 +32,14 @@ class SA_Optimizer:
         self.best_solution = None
         self.best_cost = float('inf')
         self.cost_history = []
+        self.base_step = 5
         
         # 模擬退火參數
         self.T_max = 10.0  # 初始溫度
         self.T_min = 1.0    # 最終溫度
         self.alpha = 0.65   # 冷卻率
         self.max_iterations = 1  # 每個溫度的迭代次數
-        self.max_speed_change = 12  # 最大轉速變化限制
+        self.max_speed_change = 15  # 最大轉速變化限制
         
         # 目標函數權重保持不變
         self.w_temp = 1
@@ -71,7 +72,7 @@ class SA_Optimizer:
                 return predicted_temps
         return None
 
-    def objective_function(self, fan_speed, predicted_temps, error,current_temp):
+    def objective_function(self, fan_speed, predicted_temps, error, current_temp):
         """目標函數，加入過熱與過冷的懲罰項"""
         if predicted_temps is None:
             return float('inf')
@@ -81,7 +82,7 @@ class SA_Optimizer:
             # 計算預測溫度的斜率
             predicted_slope = 0
             if len(predicted_temps) > 1:
-                predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)
+                predicted_slope = (predicted_temps[0] - current_temp)
             
             # 根據error判斷期望的斜率方向
             # 如果error > 0，表示當前溫度高於目標溫度，鼓勵負斜率（降溫）
@@ -101,10 +102,22 @@ class SA_Optimizer:
         # 溫度控制項
         temp_error = 0
 
-        
-        # 只計算預測序列中後三位的溫度差
-        for i in range(len(predicted_temps) - 3, len(predicted_temps)):
-            temp_diff = abs(predicted_temps[i] - self.target_temp)
+        # 速度平滑項
+        speed_smooth = 0
+        if self.previous_fan_speed is not None:
+            speed_change = fan_speed - self.previous_fan_speed
+            speed_smooth = speed_change ** 2
+            
+            # 當溫度與目標溫度接近時，增加速度平滑項的權重，使轉速更快收斂
+            if abs(current_temp - self.target_temp) < 1.0:
+                # 溫度越接近目標，速度平滑權重越高
+                temp_diff_ratio = max(0.1, 1 - abs(current_temp - self.target_temp))
+                smooth_weight = 3.0 * temp_diff_ratio  # 當溫度非常接近時，權重最高可達3.0
+                speed_smooth *= smooth_weight
+                
+        # 只計算預測序列中所有溫度差
+        for i in predicted_temps:
+            temp_diff = abs(i - self.target_temp)
             if temp_diff > 0.3:
                 temp_error += math.sqrt(temp_diff) * 20
             else:
@@ -115,30 +128,47 @@ class SA_Optimizer:
         
         # 總成本
         total_cost = (self.w_temp * temp_error + 
-                     self.w_power * power_consumption  + slope_penalty)   # 過冷懲罰權重
+                     self.w_power * power_consumption  + slope_penalty + speed_smooth)
         
         return total_cost
 
-    def generate_neighbor(self, current_speed):
+    def generate_neighbor(self, current_speed, current_temp=None):
         """生成鄰近解"""
         if self.previous_fan_speed is not None:
             # 在當前溫度下動態調整步長
             max_change = min(self.max_speed_change, abs(self.T_current))
-            delta = random.uniform(-max_change, max_change)
+            # 確保變化是self.base_step的倍數
+            max_steps = int(max_change / self.base_step)
+            if max_steps == 0:
+                max_steps = 1
+                
+            # 當系統溫度與目標溫度接近時，限制下限為1個基本步長
+            if current_temp is not None and abs(current_temp - self.target_temp) < 0.5:
+                min_steps = 1  # 最小步長為1個基本步長
+                steps = random.randint(min_steps, max_steps) * (1 if random.random() > 0.5 else -1)
+            else:
+                steps = random.randint(-max_steps, max_steps)
+                
+            delta = steps * self.base_step
             new_speed = current_speed + delta
         else:
             # 首次運行時的範圍更大
             new_speed = random.uniform(40, 100)
+            # 近似到最接近的self.base_step倍數
+            new_speed = round(new_speed / self.base_step) * self.base_step
             
         # 確保在合理範圍內
         new_speed = max(40, min(100, new_speed))
         # 如果有前一個速度，確保變化不超過限制
         if self.previous_fan_speed is not None:
             max_change = self.max_speed_change
-            new_speed = max(self.previous_fan_speed - max_change,
-                          min(self.previous_fan_speed + max_change, new_speed))
+            lower_bound = self.previous_fan_speed - max_change
+            upper_bound = self.previous_fan_speed + max_change
+            new_speed = max(lower_bound, min(upper_bound, new_speed))
+            # 近似到最接近的self.base_step倍數
+            new_speed = round(new_speed / self.base_step) * self.base_step
         
-        return round(new_speed)
+        return int(new_speed)
 
     def optimize(self):
         """使用模擬退火算法進行優化"""
@@ -193,7 +223,7 @@ class SA_Optimizer:
             
             for _ in range(self.max_iterations):
                 # 生成新解
-                new_speed = self.generate_neighbor(current_speed)
+                new_speed = self.generate_neighbor(current_speed, current_temp)
                 predicted_temps = self.predict_temp(new_speed, fixed_window_data)
                 new_cost = self.objective_function(new_speed, predicted_temps, error,current_temp)
                 
