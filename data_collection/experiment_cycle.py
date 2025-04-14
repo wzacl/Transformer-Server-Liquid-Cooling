@@ -21,6 +21,7 @@ import csv
 import os
 import json
 from datetime import datetime, timedelta
+from tabulate import tabulate
 
 
 # 初始化控制器
@@ -29,18 +30,49 @@ pump_port = '/dev/ttyAMA3'
 fan1_port = '/dev/ttyAMA5'
 fan2_port = '/dev/ttyAMA4'
 
-#設置實驗資料放置的資料夾
+#實驗設置變數放置資料夾
+setting_folder = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/data_collection/Experimental_parameter_setting'
+
+# 設置當前資料蒐集瓦數和對應的電壓電流
+power_settings = {
+    '1.0KW': '220V_8A',
+    '1.5KW': '285V_8A',
+    '1.85KW': '325V_8A',
+}
+
+# 選擇實驗功率
+power_level = '1.85KW'  # 可以修改為其他功率級別: '1.0KW', '1.5KW', '1.85KW'
+power_detail = power_settings[power_level]
+# 選擇實驗類型
+experiment_type = 'fan_down'  # 可選: 'pump_slice', 'fan_down', 'basic_feature'
+
+# 設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Model_Training_data'
-#設置實驗資料檔案名稱
-exp_var = 'Training_data_GPU1.9KW(332V_8A)'
-#設置保存進度的jason文件名稱
-experiment_progress=f'{exp_var}.json'
-#選取變數設置的csv檔案    
-if exp_var == 'Training_data_GPU1.9KW(332V_8A)':
-    settings_file = 'Experimental_parameter_setting/experiment_setting_cycle.csv'
+
+# 根據實驗類型選擇對應的設置檔案
+if experiment_type == 'pump_slice':
+    settings_file = f'{setting_folder}/experiment_setting_pump_slice.csv'
+    type_suffix = 'pump_cycle'
+elif experiment_type == 'basic_feature':
+    settings_file = f'{setting_folder}/experiment_setting_basic_feature.csv'
+    type_suffix = 'basic_features'
+elif experiment_type == 'fan_down':
+    settings_file = f'{setting_folder}/experiment_setting_fan_down.csv'
+    type_suffix = 'fan_down'
 else:
-    print("請輸入正確的實驗變數")
-    sys.exit()  # 如果實驗變數錯誤，直接退出程式
+    print("請選擇正確的實驗類型")
+    sys.exit()
+
+# 自動生成實驗資料檔案名稱
+timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+exp_var = f'Training_data_GPU{power_level}({power_detail})_{type_suffix}_{timestamp}'
+
+# 設置保存進度的jason文件名稱
+experiment_progress = f'{exp_var}.json'
+
+print(f"將使用設置檔案: {settings_file}")
+print(f"數據將保存為: {exp_var}.csv")
+
 #設定檔案標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
 
@@ -59,6 +91,8 @@ fan2.set_all_duty_cycle(fan_duty)
 
 # 設置ADAM控制器
 adam.start_adam()
+
+adam.update_duty_cycles(fan_duty=fan_duty, pump_duty=pump_duty)
 
 def read_settings(file_path):
     settings = []
@@ -112,29 +146,83 @@ try:
         print(f"\n當前步驟: {i+1}/{len(settings)}")
         print(f"設置風扇速度為 {setting['fan_speed']}, 泵速度為 {setting['pump_speed']}, 持續 {setting['duration']} 秒")
         print(f"更新後的預計完成時間: {updated_end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"剩餘時間: {timedelta(seconds=remaining_duration)}")
         
-        # 設置風扇速度
+        # 設置風扇和泵速度
         fan1.set_all_duty_cycle(f"{setting['fan_speed']:03d}")
         fan2.set_all_duty_cycle(f"{setting['fan_speed']:03d}")
-        
-        # 設置泵速度
         pump.set_duty_cycle(f"{setting['pump_speed']:03d}")
         
-        # 更新 ADAM 控制器中的工作週期數據
-        adam.update_duty_cycles(setting['fan_speed'], setting['pump_speed'])
+        # 更新ADAM控制器的數據記錄
+        adam.update_duty_cycles(fan_duty=setting['fan_speed'], pump_duty=setting['pump_speed'])
         
         # 等待指定的持續時間
         step_start_time = time.time()
+        last_display_time = 0
+        
         while time.time() - step_start_time < setting['duration']:
-            # 讀取和顯示數據
-            with adam.buffer_lock:
-                current_data = adam.buffer.tolist()
-            elapsed_time = time.time() - step_start_time
-            remaining_time = setting['duration'] - elapsed_time
-            print(f"當前數據: {current_data}")
-            print(f"當前步驟剩餘時間: {timedelta(seconds=int(remaining_time))}", end='\r')
-            time.sleep(1)  # 每秒更新一次
+            current_time = time.time()
+            # 每秒更新一次數據顯示
+            if current_time - last_display_time >= 1:
+                # 清除終端
+                os.system('cls' if os.name == 'nt' else 'clear')
+                
+                # 讀取和顯示數據
+                with adam.buffer_lock:
+                    current_data = adam.buffer.tolist()
+                
+                # 計算時間相關資訊
+                elapsed_time = current_time - step_start_time
+                remaining_time = setting['duration'] - elapsed_time
+                total_remaining = calculate_total_duration(settings[i:]) - elapsed_time
+                progress_percent = (elapsed_time / setting['duration']) * 100
+                
+                # 顯示基本實驗資訊
+                print(f"=== 實驗資訊 ===")
+                print(f"• 實驗類型: {experiment_type} ({type_suffix})")
+                print(f"• GPU功率: {power_level} ({power_detail})")
+                print(f"• 數據檔案: {exp_var}.csv")
+                print("")
+                
+                # 顯示進度資訊
+                progress_info = [
+                    ["當前步驟", f"{i+1}/{len(settings)}"],
+                    ["步驟設置", f"風扇: {setting['fan_speed']}%, 泵: {setting['pump_speed']}%, 持續: {setting['duration']}秒"],
+                    ["步驟進度", f"{elapsed_time:.1f}秒/{setting['duration']}秒 ({progress_percent:.1f}%)"],
+                    ["步驟剩餘時間", f"{timedelta(seconds=int(remaining_time))}"],
+                    ["總剩餘時間", f"{timedelta(seconds=int(total_remaining))}"],
+                    ["預計完成時間", f"{(datetime.now() + timedelta(seconds=total_remaining)).strftime('%Y-%m-%d %H:%M:%S')}"]
+                ]
+                print(tabulate(progress_info, headers=["項目", "數值"], tablefmt="grid"))
+                print("")
+                
+                # 如果有溫度數據則顯示
+                if current_data and len(current_data) >= 9:
+                    temp_data = [
+                        ["GPU溫度", f"{current_data[0]:.2f}°C"],
+                        ["加熱器溫度", f"{current_data[1]:.2f}°C"],
+                        ["CDU進水溫度", f"{current_data[2]:.2f}°C"],
+                        ["CDU出水溫度", f"{current_data[3]:.2f}°C"],
+                        ["環境溫度", f"{current_data[4]:.2f}°C"],
+                        ["進氣溫度", f"{current_data[5]:.2f}°C"],
+                        ["出氣溫度", f"{current_data[6]:.2f}°C"]
+                    ]
+                    print("=== 溫度數據 ===")
+                    print(tabulate(temp_data, headers=["感測器", "溫度"], tablefmt="grid"))
+                    print("")
+                    
+                    # 顯示控制設置
+                    control_data = [
+                        ["風扇轉速", f"{current_data[8]}%"],
+                        ["泵轉速", f"{current_data[9]}%"]
+                    ]
+                    print("=== 當前控制設置 ===")
+                    print(tabulate(control_data, headers=["裝置", "轉速"], tablefmt="grid"))
+                
+                # 更新最後顯示時間
+                last_display_time = current_time
+                
+            # 短暫睡眠以減少CPU使用率
+            time.sleep(0.1)
         
         save_progress(i + 1)
 

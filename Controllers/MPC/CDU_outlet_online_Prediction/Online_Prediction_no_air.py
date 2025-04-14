@@ -69,7 +69,7 @@ time_window = model_params['seq_len']
 #設置實驗資料放置的資料夾
 exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data(真實roll_data)/{test_model}'
 #設置實驗資料檔案名稱
-exp_var = 'GPU15KW_1(285V_8A)_fan_5%_smooth_test'
+exp_var = 'GPU15KW_1(285V_8A)_fan_test'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 
@@ -108,7 +108,7 @@ time.sleep(2)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model_state_dict = torch.load(model_path, map_location=torch.device('cpu'), weights_only=True)
 model = Transformer_enc_dec.TransformerModel(
-    input_dim=7, 
+    input_dim=5, 
     hidden_dim=model_params['hidden_dim'], 
     output_dim=1, 
     num_encoder_layers=model_params['num_encoder_layers'], 
@@ -143,7 +143,7 @@ prediction_data = {
 model_tester = mt.Model_tester(fan1=fan1, fan2=fan2, pump=pump, adam=adam)
 
 # 選擇測試模式 (1: 只變動風扇, 2: 只變動泵, 3: 隨機變動)
-model_tester.start_test(4)  # 這裡選擇隨機變動測試
+model_tester.start_test(1)  # 這裡選擇隨機變動測試
 
 
 while model_tester.phase != "end":
