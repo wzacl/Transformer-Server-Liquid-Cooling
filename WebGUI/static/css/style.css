@@ -1,0 +1,133 @@
+/* 伺服器液冷系統監控 - 自定義樣式 */
+
+/* 全局樣式 */
+body {
+    font-family: "微軟正黑體", "Microsoft JhengHei", Arial, sans-serif;
+    background-color: #f5f5f5;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.card-header {
+    font-weight: bold;
+    padding: 0.75rem 1.25rem;
+}
+
+/* 表格樣式 */
+.table {
+    margin-bottom: 0;
+}
+
+.table th {
+    font-weight: bold;
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* 進度條樣式 */
+.progress {
+    height: 25px;
+    border-radius: 5px;
+    background-color: #e9ecef;
+    margin-bottom: 1rem;
+}
+
+.progress-bar {
+    font-weight: bold;
+}
+
+/* 上升/下降/穩定圖標的顏色 */
+.trend-up {
+    color: #dc3545; /* 紅色，溫度上升 */
+}
+
+.trend-down {
+    color: #28a745; /* 綠色，溫度下降 */
+}
+
+.trend-stable {
+    color: #17a2b8; /* 藍色，溫度穩定 */
+}
+
+/* 溫度狀態顏色 */
+.temp-high {
+    color: #dc3545; /* 紅色，溫度過高 */
+}
+
+.temp-normal {
+    color: #28a745; /* 綠色，溫度正常 */
+}
+
+.temp-low {
+    color: #17a2b8; /* 藍色，溫度偏低 */
+}
+
+/* 日誌區域樣式 */
+.log-container {
+    max-height: 300px;
+    overflow-y: auto;
+    background-color: #343a40;
+    border-radius: 5px;
+}
+
+.log-area {
+    color: #f8f9fa;
+    padding: 10px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    margin-bottom: 0;
+}
+
+/* SA 日誌特定樣式 */
+.log-initial {
+    color: #17a2b8; /* 青色，初始解 */
+}
+
+.log-accept {
+    color: #28a745; /* 綠色，接受 */
+}
+
+.log-reject {
+    color: #dc3545; /* 紅色，拒絕 */
+}
+
+.log-better {
+    color: #ffc107; /* 黃色，更好的解 */
+}
+
+.log-final {
+    color: #28a745; /* 綠色，最終解 */
+    font-weight: bold;
+}
+
+/* 圖表容器 */
+canvas {
+    width: 100% !important;
+    height: 250px !important;
+    margin-top: 10px;
+}
+
+/* 響應式調整 */
+@media (max-width: 768px) {
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .log-container {
+        max-height: 200px;
+    }
+    
+    canvas {
+        height: 200px !important;
+    }
+} 

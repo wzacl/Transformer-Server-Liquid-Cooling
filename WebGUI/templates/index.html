@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>伺服器液冷系統監控</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome 圖標 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Chart.js 圖表庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- 自定義 CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-server"></i> 伺服器液冷系統監控
+            </span>
+            <div class="ms-auto text-white">
+                <span id="current-time"></span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <!-- 溫度監控區塊 -->
+            <div class="col-lg-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <i class="fas fa-thermometer-half"></i> 溫度監控
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>感測器</th>
+                                        <th>溫度</th>
+                                        <th>趨勢</th>
+                                        <th>狀態</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="temperature-table">
+                                    <!-- JavaScript動態填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 控制狀態區塊 -->
+            <div class="col-lg-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <i class="fas fa-sliders-h"></i> 控制狀態
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>控制設備</th>
+                                        <th>當前值</th>
+                                        <th>趨勢</th>
+                                        <th>新設定值</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="control-table">
+                                    <!-- JavaScript動態填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <!-- 溫度趨勢圖表區塊 -->
+            <div class="col-lg-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <i class="fas fa-chart-line"></i> 溫度趨勢
+                    </div>
+                    <div class="card-body">
+                        <canvas id="temperature-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 控制器設定區塊 -->
+            <div class="col-lg-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <i class="fas fa-cogs"></i> 控制器設定
+                    </div>
+                    <div class="card-body">
+                        <form id="target-form">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="gpu-target" class="form-label">GPU目標溫度 (°C)</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="gpu-target" min="60" max="85" step="1">
+                                        <button class="btn btn-outline-secondary" type="button" id="set-gpu-target">設定</button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="cdu-target" class="form-label">冷卻水目標溫度 (°C)</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="cdu-target" min="20" max="40" step="1">
+                                        <button class="btn btn-outline-secondary" type="button" id="set-cdu-target">設定</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                        <div class="mt-4">
+                            <h5><i class="fas fa-info-circle"></i> 系統資訊</h5>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item">
+                                    <i class="fas fa-chart-bar"></i> 預測模型: Transformer | 時間窗口: 35 | 步數: 8
+                                </li>
+                                <li class="list-group-item">
+                                    <i class="fas fa-random"></i> 優化算法: 模擬退火 (SA) | 目標溫度: <span id="cdu-target-display">30</span>°C
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <!-- 控制輸出區塊 -->
+            <div class="col-lg-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <i class="fas fa-tachometer-alt"></i> 控制輸出
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5>泵轉速</h5>
+                                <div class="progress mb-3" style="height: 30px;">
+                                    <div id="pump-progress" class="progress-bar progress-bar-striped" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h5>風扇轉速</h5>
+                                <div class="progress mb-3" style="height: 30px;">
+                                    <div id="fan-progress" class="progress-bar progress-bar-striped bg-info" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                                </div>
+                            </div>
+                        </div>
+                        <canvas id="control-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- SA優化日誌區塊 -->
+            <div class="col-lg-6 mb-3">
+                <div class="card">
+                    <div class="card-header bg-dark text-white">
+                        <i class="fas fa-terminal"></i> SA優化日誌
+                        <span id="optimization-status" class="badge bg-secondary float-end">閒置</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container">
+                            <pre id="sa-logs" class="log-area">等待優化...</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- 自定義 JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 
