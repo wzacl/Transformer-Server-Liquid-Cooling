@@ -14,9 +14,12 @@ import json
 import threading
 import random
 
-# 添加專案根目錄到路徑中
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(project_root)
+# 添加專案根目錄到路徑以引入config模塊
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 導入配置並設置路徑
+from config import setup_paths, get_path, PATHS
+setup_paths()
 
 # 初始化 Flask 應用
 app = Flask(__name__)
@@ -232,10 +235,27 @@ def update_target():
     target_temp = data.get('target_temp')
     return jsonify(simulator.update_target(gpu_target, target_temp))
 
+@app.route('/config')
+def show_config():
+    """API端點：顯示當前配置"""
+    config_info = {
+        'paths': {k: str(v) for k, v in PATHS.items()},
+        'has_local_config': 'local_config' in sys.modules
+    }
+    return jsonify(config_info)
+
 if __name__ == '__main__':
     try:
-        print("伺服器液冷系統 Web 監控已啟動")
-        print("訪問 http://127.0.0.1:5000 查看監控界面")
+        print("\n=== 伺服器液冷系統 Web 監控 ===")
+        print(f"配置信息:")
+        print(f"  專案根目錄: {get_path('project_root')}")
+        print(f"  裝置配置:")
+        print(f"    ADAM端口: {get_path('adam_port')}")
+        print(f"    風扇1端口: {get_path('fan1_port')}")
+        print(f"    風扇2端口: {get_path('fan2_port')}")
+        print(f"    泵端口: {get_path('pump_port')}")
+        print(f"\n訪問 http://127.0.0.1:5000 查看監控界面")
+        print("============================\n")
         app.run(debug=True, host='0.0.0.0')
     except KeyboardInterrupt:
         print("系統已停止") 

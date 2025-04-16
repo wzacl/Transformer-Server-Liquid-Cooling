@@ -1,0 +1,47 @@
+# Python 相關
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虛擬環境
+venv/
+ENV/
+env/
+
+# IDE 設置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 本地配置文件
+local_config.py
+
+# 系統文件
+.DS_Store
+Thumbs.db
+
+# 日誌文件
+*.log
+
+# 臨時數據和備份文件
+temp/
+*.bak
+*.tmp 
