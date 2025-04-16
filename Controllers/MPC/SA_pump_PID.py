@@ -1,28 +1,19 @@
 #usr/bin/env python3
-import sys
-import os
-
-# 添加專案根目錄到路徑以引入config模塊
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-# 導入配置並設置路徑
-from config import setup_paths, get_path, print_paths
-setup_paths()
-
-# 添加 GB_PID 目錄到系統路徑
-gb_pid_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'GB_PID')
-sys.path.append(gb_pid_path)
-
-# 使用配置中的路徑
 import time
+import sys
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/GB_PID')
 import ADAMScontroller
 import pwmcontroller as ctrl
 import multi_channel_pwmcontroller as multi_ctrl
 from simple_pid import PID
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 from collections import deque
 import math
+import os
 import csv
 import random
 import Optimal_algorithm.SA_Optimizer as SA_Optimizer
@@ -33,26 +24,17 @@ import select
 import termios
 import tty
 
-# 從配置中獲取裝置路徑
-adam_port = get_path('adam_port')  # 預設是 '/dev/ttyUSB0'
-fan1_port = get_path('fan1_port')  # 預設是 '/dev/ttyAMA4'
-fan2_port = get_path('fan2_port')  # 預設是 '/dev/ttyAMA5'
-pump_port = get_path('pump_port')  # 預設是 '/dev/ttyAMA3'
+adam_port = '/dev/ttyUSB0'
+fan1_port = '/dev/ttyAMA4'
+fan2_port = '/dev/ttyAMA5'
+pump_port = '/dev/ttyAMA3'
 
-# 從配置中獲取實驗數據目錄
-exp_name = get_path('control_data')  # 數據存放目錄
-# 其他設置保持不變
+#設置實驗資料放置的資料夾
+exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data'
+#設置實驗資料檔案名稱
 exp_var = 'Fan_MPC_data_GPU1.5KW_1(285V_8A)_SA_test_smooth_6.csv'
+#設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
-
-# 初始化時輸出配置信息
-print("\n=== 使用以下設備配置 ===")
-print(f"ADAM端口: {adam_port}")
-print(f"風扇1端口: {fan1_port}")
-print(f"風扇2端口: {fan2_port}")
-print(f"泵端口: {pump_port}")
-print(f"數據保存路徑: {exp_name}")
-print("========================\n")
 
 adam = ADAMScontroller.DataAcquisition(exp_name=exp_name, exp_var=exp_var, port=adam_port, csv_headers=custom_headers)
 fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
@@ -61,8 +43,7 @@ pump = ctrl.XYKPWMController(pump_port)
 
 # 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
 # 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
-scaler_path = get_path('predict_model') + '/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib'
-
+scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib' 
 # 設置初始轉速
 pump_duty=60
 pump.set_duty_cycle(pump_duty)
@@ -119,10 +100,7 @@ sa_optimizer = ModifiedSA_Optimizer(
     adam=adam, 
     window_size=35, 
     P_max=P_max, 
-    target_temp=target_temp,
-    scaler_path=scaler_path,
-    model_path=get_path('predict_model') + '/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth',
-    figure_path=get_path('control_data') + '/Fan_MPC_FHO_data'
+    target_temp=target_temp
 )
 
 #設置風扇控制頻率

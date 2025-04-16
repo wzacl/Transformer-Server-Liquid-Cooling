@@ -3,34 +3,26 @@
 # 用於最佳化風扇轉速以降低 CDU 出水溫度
 import time
 import sys
-import os
-
-# 添加專案根目錄到路徑以引入config模塊
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-
-# 導入配置並設置路徑
-from config import setup_paths, get_path, print_paths
-setup_paths()
-
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor')
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
-import math
-import random
-import csv
-
-# 使用配置系統提供的路徑
-sys.path.append(get_path('controller_path', default=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-sys.path.append(get_path('model_constructor_path', default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'Model_constructor')))
-
+import time
 import Transformer
+import torch
 import Sequence_Window_Processor as swp
 import scipy.optimize as optimize
+import math
+import os
+import csv
+import random
 
 
 class SA_Optimizer:
     def __init__(self, adam, window_size=35, P_max=100, target_temp=25,
-                 model_path=None, scaler_path=None, figure_path=None):
+                 model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth',
+                 scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib',
+                 figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data'):
         """
         模擬退火(SA)風扇轉速最佳化器初始化
         """
@@ -53,11 +45,10 @@ class SA_Optimizer:
         self.w_temp = 1
         self.w_power = 0.001
         
-        # 使用配置系統提供的路徑，如果沒有提供則使用默認值
-        self.model_path = model_path or get_path('predict_model') + '/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth'
-        self.scaler_path = scaler_path or get_path('predict_model') + '/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib'
-        self.figure_path = figure_path or get_path('control_data') + '/Fan_MPC_FHO_data'
-        
+        # 保留原有的模型初始化代碼
+        self.model_path = model_path
+        self.scaler_path = scaler_path
+        self.figure_path = figure_path
         self.adam = adam
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, 
