@@ -53,7 +53,7 @@ class SequenceWindowProcessor:
                 self.adam.buffer[0],  # T_GPU
                 self.adam.buffer[3],  # T_CDU_out
                 self.adam.buffer[2],  # T_CDU_in
-                self.adam.buffer[5],  # T_air_in
+                self.adam.buffer[4],  # T_env
                 self.adam.buffer[6],  # T_air_out
                 self.adam.buffer[8],  # fan_duty
                 self.adam.buffer[9]   # pump_duty

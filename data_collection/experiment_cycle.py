@@ -41,23 +41,23 @@ power_settings = {
 }
 
 # 選擇實驗功率
-power_level = '1.85KW'  # 可以修改為其他功率級別: '1.0KW', '1.5KW', '1.85KW'
+power_level = '1.0KW'  # 可以修改為其他功率級別: '1.0KW', '1.5KW', '1.85KW'
 power_detail = power_settings[power_level]
 # 選擇實驗類型
-experiment_type = 'fan_down'  # 可選: 'pump_slice', 'fan_down', 'basic_feature'
+experiment_type = 'pump_slice'  # 可選: 'pump_slice', 'fan_down', 'basic_feature'
 
 # 設置實驗資料放置的資料夾
 exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Model_Training_data'
 
 # 根據實驗類型選擇對應的設置檔案
 if experiment_type == 'pump_slice':
-    settings_file = f'{setting_folder}/experiment_setting_pump_slice.csv'
+    settings_file = f'{setting_folder}/experiment_setting_pump_slice_10%.csv'
     type_suffix = 'pump_cycle'
 elif experiment_type == 'basic_feature':
     settings_file = f'{setting_folder}/experiment_setting_basic_feature.csv'
     type_suffix = 'basic_features'
 elif experiment_type == 'fan_down':
-    settings_file = f'{setting_folder}/experiment_setting_fan_down.csv'
+    settings_file = f'{setting_folder}/experiment_setting_fan_down_10%.csv'
     type_suffix = 'fan_down'
 else:
     print("請選擇正確的實驗類型")
