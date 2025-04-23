@@ -1,0 +1,40 @@
+超參數:
+seq_length: 35
+batch_size: 128
+input_dim: 7
+hidden_dim: 16
+output_dim: 1
+num_encoder_layers: 1
+num_decoder_layers: 1
+num_heads: 4
+dropout: 0.001
+num_epochs: 500
+
+訓練集指標:
+MSE: 0.0095
+RMSE: 0.0975
+MAE: 0.0741
+R2 分数: 0.9984
+趨勢準確率: 0.1121
+
+測試集 test1 指標:
+MSE: 0.0889
+RMSE: 0.2981
+MAE: 0.2338
+R2 分数: 0.9451
+趨勢準確率: 0.1408
+
+測試集 test2 指標:
+MSE: 0.0188
+RMSE: 0.1371
+MAE: 0.1060
+R2 分数: 0.9757
+趨勢準確率: 0.2019
+
+測試集 test3 指標:
+MSE: 0.0212
+RMSE: 0.1456
+MAE: 0.1073
+R2 分数: 0.9738
+趨勢準確率: 0.1049
+

@@ -8,6 +8,7 @@ sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controll
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+import Transformer_enc_dec
 import Transformer
 import torch
 import Sequence_Window_Processor as swp
@@ -35,14 +36,14 @@ class SA_Optimizer:
         self.base_step = 5
         
         # 模擬退火參數
-        self.T_max = 10.0  # 初始溫度
-        self.T_min = 1.0    # 最終溫度
-        self.alpha = 0.65   # 冷卻率
+        self.T_max = 20.0  # 初始溫度
+        self.T_min = 5.0    # 最終溫度
+        self.alpha = 0.6   # 冷卻率
         self.max_iterations = 1  # 每個溫度的迭代次數
         self.max_speed_change = 15  # 最大轉速變化限制
         
         # 目標函數權重保持不變
-        self.w_temp = 1
+        self.w_temp = 10
         self.w_power = 0.001
         
         # 保留原有的模型初始化代碼
@@ -51,8 +52,7 @@ class SA_Optimizer:
         self.figure_path = figure_path
         self.adam = adam
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, 
-            output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
+        self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
         self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()
         self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, 
@@ -68,7 +68,7 @@ class SA_Optimizer:
         if input_tensor is not None:
             with torch.no_grad():
                 scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()
-                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=True)
+                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)
                 return predicted_temps
         return None
 
@@ -76,7 +76,7 @@ class SA_Optimizer:
         """目標函數，加入過熱與過冷的懲罰項"""
         if predicted_temps is None:
             return float('inf')
-
+        '''
         #斜率變化計算項
         if predicted_temps is not None and len(predicted_temps) > 0:
             # 計算預測溫度的斜率
@@ -92,21 +92,22 @@ class SA_Optimizer:
             
             # 如果斜率方向與期望方向不一致，增加懲罰
             if desired_direction != actual_direction:
-                slope_penalty = 200
+                slope_penalty = 10
             else:
                 slope_penalty = 0
             
             # 如果溫度接近目標值，減少斜率懲罰以避免過度調整
             if abs(error) < 0.5:
                 slope_penalty *= 0.5
+        '''
         # 溫度控制項
         temp_error = 0
-
+        '''
         # 速度平滑項
         speed_smooth = 0
         if self.previous_fan_speed is not None:
             speed_change = fan_speed - self.previous_fan_speed
-            speed_smooth = speed_change ** 2
+            speed_smooth = speed_change /2
             
             # 當溫度與目標溫度接近時，增加速度平滑項的權重，使轉速更快收斂
             if abs(current_temp - self.target_temp) < 1.0:
@@ -114,21 +115,17 @@ class SA_Optimizer:
                 temp_diff_ratio = max(0.1, 1 - abs(current_temp - self.target_temp))
                 smooth_weight = 3.0 * temp_diff_ratio  # 當溫度非常接近時，權重最高可達3.0
                 speed_smooth *= smooth_weight
-                
+        '''
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
-            temp_diff = abs(i - self.target_temp)
-            if temp_diff > 0.3:
-                temp_error += math.sqrt(temp_diff) * 20
+            if abs(i - self.target_temp) > 0.3:
+                temp_diff = (abs(i - self.target_temp)*10)**2
+                temp_error += temp_diff
             else:
                 temp_error += 0
 
-        # 功率消耗項
-        power_consumption = (fan_speed/100) ** 3 * self.P_max
-        
         # 總成本
-        total_cost = (self.w_temp * temp_error + 
-                     self.w_power * power_consumption  + slope_penalty + speed_smooth)
+        total_cost = temp_error
         
         return total_cost
 
@@ -143,11 +140,7 @@ class SA_Optimizer:
                 max_steps = 1
                 
             # 當系統溫度與目標溫度接近時，限制下限為1個基本步長
-            if current_temp is not None and abs(current_temp - self.target_temp) < 0.5:
-                min_steps = 1  # 最小步長為1個基本步長
-                steps = random.randint(min_steps, max_steps) * (1 if random.random() > 0.5 else -1)
-            else:
-                steps = random.randint(-max_steps, max_steps)
+            steps = random.randint(-max_steps, max_steps)
                 
             delta = steps * self.base_step
             new_speed = current_speed + delta
@@ -189,16 +182,11 @@ class SA_Optimizer:
 
             temp_change = abs(current_temp - past_temp)
             
-            if abs(current_temp - self.target_temp) > 2:
+            if current_temp - self.target_temp > 2:
                 # 基本轉速計算
                 base_speed = min(100, max(60, 60 + (current_temp - self.target_temp) * 10))
-                # 如果溫度變化大於0.2，提高初始搜索轉速
-                if temp_change > 0.2:   
-                    current_speed = min(100, base_speed + temp_change * 5)
-                else:
-                    current_speed = base_speed
             else:
-                current_speed = 50
+                current_speed = 60
         
         current_speed = round(current_speed)
         best_speed = current_speed

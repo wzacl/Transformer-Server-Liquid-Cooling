@@ -22,15 +22,23 @@ import termios
 import tty
 import select
 
+# 新增: 儲存優化結果的佇列
+optimization_history = deque(maxlen=5)  # 儲存最近5次的優化結果
+
 adam_port = '/dev/ttyUSB0'
 fan1_port = '/dev/ttyAMA4'
 fan2_port = '/dev/ttyAMA5'
 pump_port = '/dev/ttyAMA3'
 
+# 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
+# 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
+scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib' 
+model_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth'
+model_name = 'no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400'
 #設置實驗資料放置的資料夾
-exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SLSQP_data'
+exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/{model_name}'
 #設置實驗資料檔案名稱
-exp_var = 'Fan_MPC_data_GPU1.5KW_1(285V_8A)_SLSQP_test_smooth.csv'
+exp_var = 'Fan_MPC_data_test.csv'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
 
@@ -39,9 +47,7 @@ fan1 = multi_ctrl.multichannel_PWMController(fan1_port)
 fan2 = multi_ctrl.multichannel_PWMController(fan2_port)
 pump = ctrl.XYKPWMController(pump_port)
 
-# 設定MinMaxScaler的路徑，此scaler用於將輸入數據歸一化到[0,1]區間
-# 該scaler是在訓練模型時保存的，確保預測時使用相同的數據縮放方式
-scaler_path = '/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib' 
+
 # 設置初始轉速
 pump_duty=60
 pump.set_duty_cycle(pump_duty)
@@ -69,7 +75,9 @@ sa_optimizer = SA_Optimizer.SA_Optimizer(
     adam=adam, 
     window_size=35, 
     P_max=P_max, 
-    target_temp=target_temp
+    target_temp=target_temp,
+    model_path=model_path,
+    scaler_path=scaler_path
 )
 
 # 設置風扇控制頻率
@@ -113,9 +121,17 @@ def validate_temp(temp):
     except:
         return "N/A"
 
-# 清除終端輸出
+# 修改清除終端輸出的函數，保留優化結果區域
 def clear_terminal():
-    os.system('cls' if os.name == 'nt' else 'clear')
+    """清除終端輸出，但保留部分區域"""
+    # 使用ANSI轉義序列來清除螢幕並將游標移到開頭
+    print("\033[2J\033[H", end="")
+    
+    # 如果有優化歷史，顯示最近的優化結果
+    if optimization_history:
+        last_opt = optimization_history[-1]
+        print(f"{Colors.BOLD}{Colors.CYAN}🔄 上次優化 [{last_opt['time']}]: {Colors.GREEN}風扇速度 {last_opt['fan_speed']}% | 成本 {last_opt['cost']:.2f}{Colors.RESET}")
+        print("="*50)
 
 # 獲取趨勢符號
 def get_trend(current, previous):
@@ -199,13 +215,50 @@ def display_control_strategy(control_temp):
 # 顯示風扇優化進度
 def display_fan_optimization():
     print("-"*50)
-    print(f"🌀 風扇優化 (SA) - ⏳ 執行中...")
+    print(f"{Colors.YELLOW}{Colors.BOLD}🌀 風扇優化 (SA) - ⏳ 執行中...{Colors.RESET}")
+
+# 添加一個用於產生提示音的函數
+def alert_sound():
+    """產生提示音以引起注意"""
+    print('\a', end='', flush=True)  # 使用系統提示音
 
 # 顯示風扇優化結果 (精簡版)
 def display_optimization_result(optimal_fan_speed, optimal_cost, fan_duty, optimization_time):
     fan_change = optimal_fan_speed - fan_duty
-    print(f"✅ 最佳風扇轉速: {optimal_fan_speed}% ({'+' if fan_change > 0 else '-' if fan_change < 0 else '='}{abs(fan_change)}%)")
-    print(f"📊 優化成本: {optimal_cost:.2f} | ⏱️ 優化耗時: {optimization_time:.2f}秒")
+    
+    # 添加到歷史記錄
+    timestamp = time.strftime('%H:%M:%S')
+    optimization_history.append({
+        'time': timestamp,
+        'fan_speed': optimal_fan_speed,
+        'change': fan_change,
+        'cost': optimal_cost,
+        'opt_time': optimization_time
+    })
+    
+    # 產生提示音
+    alert_sound()
+    
+    # 添加醒目的分隔線
+    print(f"\n{Colors.YELLOW}{'★'*30}{Colors.RESET}")
+    
+    # 顯示當前結果 (添加醒目顏色和框架)
+    print(f"{Colors.BOLD}{Colors.GREEN}✅ 風扇優化完成! {Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.GREEN}✓ 最佳風扇轉速: {optimal_fan_speed}% ({'+' if fan_change > 0 else '-' if fan_change < 0 else '='}{abs(fan_change)}%){Colors.RESET}")
+    print(f"{Colors.BOLD}📊 優化成本: {optimal_cost:.2f} | ⏱️ 優化耗時: {optimization_time:.2f}秒{Colors.RESET}")
+    
+    # 醒目的結束分隔線
+    print(f"{Colors.YELLOW}{'★'*30}{Colors.RESET}\n")
+
+# 新增: 顯示優化歷史記錄的函數
+def display_optimization_history():
+    if not optimization_history:
+        return
+    
+    print("-"*50)
+    print(f"{Colors.BOLD}{Colors.CYAN}📜 優化歷史記錄 (最近{len(optimization_history)}次){Colors.RESET}")
+    for i, entry in enumerate(reversed(optimization_history), 1):
+        print(f"{i}. [{entry['time']}] 風扇: {entry['fan_speed']}% ({'+' if entry['change'] > 0 else '-' if entry['change'] < 0 else '='}{abs(entry['change'])}%) | 成本: {entry['cost']:.2f}")
 
 # 監視SA優化器的輸出，減少過多日誌
 # 為了保持簡潔，我們將替換SA_Optimizer腳本中的print函數
@@ -294,21 +347,26 @@ try:
                     SA_Optimizer.print = original_print
                     
                     if optimal_fan_speed is not None:
+                        # 先顯示優化結果，再改變設定，使結果更容易被看到
+                        display_optimization_result(optimal_fan_speed, optimal_cost, fan_duty, optimization_time)
+                        
+                        # 然後更新風扇設定
                         fan1.set_all_duty_cycle(int(optimal_fan_speed))
                         fan2.set_all_duty_cycle(int(optimal_fan_speed))
                         adam.update_duty_cycles(fan_duty=int(optimal_fan_speed))
                         
-                        # 顯示優化結果
-                        display_optimization_result(optimal_fan_speed, optimal_cost, fan_duty, optimization_time)
-                    else:
-                        print("⏳ 數據蒐集中，等待數據蒐集完成...")
-                
-                # 顯示控制說明
-                print("\n" + "="*50)
-                print(f"{Colors.BOLD}📋 控制選項{Colors.RESET}")
-                print("-"*50)
-                print(f"📌 目標設定: GPU={GPU_target}°C | 冷卻水={target_temp}°C")
-                print(f"📝 按下 Ctrl+C 停止程序")
+                        # 顯示優化歷史記錄
+                        display_optimization_history()
+                        
+                        # 顯示控制說明
+                        print("\n" + "="*50)
+                        print(f"{Colors.BOLD}📋 控制選項{Colors.RESET}")
+                        print("-"*50)
+                        print(f"📌 目標設定: GPU={GPU_target}°C | 冷卻水={target_temp}°C")
+                        print(f"📝 按下 Ctrl+C 停止程序")
+                        
+                        # 添加延遲，讓使用者有更多時間查看顯示資訊
+                        # 由於整個循環已經有 sleep(1)，不需要在這裡再添加額外的延遲
                 
         except KeyboardInterrupt:
             print("\n\n⚠️ 程序已被手動停止")
