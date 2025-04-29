@@ -5,7 +5,23 @@ import joblib
 import torch
 
 class SequenceWindowProcessor:
+    """
+    序列窗口處理器，用於管理時間序列數據的滑動窗口，處理數據標準化和反標準化，
+    以及監聽ADAM控制器的數據更新。
+    
+    該類負責維護一個固定大小的數據緩衝區，用於存儲最近的系統狀態數據，
+    並提供數據預處理和後處理功能，為預測模型和MPC控制器提供所需的輸入。
+    """
     def __init__(self, window_size=35, adams_controller=None, scaler_path=None, device="cpu"):
+        """
+        初始化序列窗口處理器
+        
+        Args:
+            window_size (int): 滑動窗口大小，默認為35
+            adams_controller: ADAM控制器實例，用於獲取實時數據
+            scaler_path (str): 數據標準化器的保存路徑
+            device (str): 計算設備，'cpu'或'cuda'
+        """
         self.window_size = window_size
         self.adam = adams_controller
         self.device = device
@@ -31,6 +47,9 @@ class SequenceWindowProcessor:
     def start_adam_listener(self):
         """
         啟動監聽 ADAM 更新事件的執行緒
+        
+        創建並啟動一個守護線程，用於監聽ADAM控制器的數據更新事件，
+        當有新數據時自動更新內部緩衝區。
         """
         thread = threading.Thread(target=self.adam_update_listener, daemon=True)
         thread.start()
@@ -38,6 +57,9 @@ class SequenceWindowProcessor:
     def adam_update_listener(self):
         """
         監聽 ADAM 更新事件，自動更新 buffer
+        
+        此方法在獨立線程中運行，持續監聽ADAM控制器的數據更新事件，
+        當事件被觸發時，調用update_from_adam方法更新數據緩衝區。
         """
         while True:
             self.adam.data_updated_event.wait()  # 等待 ADAM 觸發事件
@@ -47,6 +69,9 @@ class SequenceWindowProcessor:
     def update_from_adam(self):
         """
         當 ADAMScontroller 觸發更新時，直接更新 buffer 內的數據
+        
+        從ADAM控制器獲取最新的系統狀態數據，包括溫度和控制信號，
+        並將其添加到滑動窗口緩衝區中，同時更新數據計數器。
         """
         with self.buffer_lock:
             raw_data = np.array([
@@ -66,8 +91,15 @@ class SequenceWindowProcessor:
     def get_window_data(self, normalize=False):
         """
         取得時間窗口數據
-        :param normalize: 若為 True，則回傳正規化後的數據
-        :return: numpy array (window_size, 8)
+        
+        獲取當前滑動窗口中的所有數據，可選是否進行標準化處理。
+        
+        Args:
+            normalize (bool): 若為 True，則回傳正規化後的數據
+            
+        Returns:
+            numpy.ndarray 或 torch.Tensor: 窗口數據，如果數據不足則返回None
+            如果normalize=True，返回標準化後的張量；否則返回原始numpy數組
         """
         with self.buffer_lock:
             if self.data_count < self.window_size:
@@ -86,11 +118,19 @@ class SequenceWindowProcessor:
         """
         反標準化預測數據並可選擇進行平滑處理
         
-        :param scaled_predictions: 標準化後的預測數據
-        :param smooth: 是否進行平滑處理，預設為True
-        :return: 反標準化（並可能平滑處理）後的預測數據
+        將模型輸出的標準化預測結果轉換回原始尺度，並可選擇進行平滑處理
+        以減少預測結果中的跳變。
+        
+        Args:
+            scaled_predictions (numpy.ndarray): 標準化後的預測數據
+            smooth (bool): 是否進行平滑處理，預設為True
+            
+        Returns:
+            numpy.ndarray: 反標準化（並可能平滑處理）後的預測數據
+            
+        Raises:
+            AttributeError: 如果output_scaler缺少inverse_transform方法
         """
-
         if hasattr(self.output_scaler, "inverse_transform"):
             inverse_data = self.output_scaler.inverse_transform(scaled_predictions)[:, 0]
             
@@ -104,6 +144,20 @@ class SequenceWindowProcessor:
             raise AttributeError("output_scaler 缺少 inverse_transform 方法，請檢查 scaler 是否正確載入。")
 
     def transform_input_data(self,data):
+        """
+        標準化輸入數據
+        
+        將原始輸入數據轉換為標準化格式，以便模型處理。
+        
+        Args:
+            data (numpy.ndarray): 原始輸入數據
+            
+        Returns:
+            torch.Tensor: 標準化後的數據張量，已調整為模型所需的維度和設備
+            
+        Raises:
+            AttributeError: 如果input_scaler缺少transform方法
+        """
         if hasattr(self.input_scaler, "transform"):
             return torch.tensor(self.input_scaler.transform(data), dtype=torch.float32).unsqueeze(0).to(self.device)
         else:
@@ -113,8 +167,14 @@ class SequenceWindowProcessor:
         """
         平滑處理預測溫度序列，特別處理第一個點的跳變問題
         
-        :param predictions: 原始預測溫度序列
-        :return: 平滑處理後的溫度序列
+        通過限制預測序列中第一個點與當前實際溫度的差值，並使用線性插值
+        平滑處理前幾個預測點，減少預測結果中的不合理跳變。
+        
+        Args:
+            predictions (numpy.ndarray): 原始預測溫度序列
+            
+        Returns:
+            numpy.ndarray: 平滑處理後的溫度序列
         """
             
         # 獲取當前實際溫度
@@ -168,4 +228,3 @@ class SequenceWindowProcessor:
             print(f"📊 平滑前第一點: {predictions[0]:.3f}°C → 平滑後: {smoothed_predictions[0]:.3f}°C")
         
         return smoothed_predictions
-    

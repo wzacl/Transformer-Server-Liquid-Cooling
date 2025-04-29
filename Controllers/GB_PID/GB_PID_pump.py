@@ -1,17 +1,21 @@
-'''''
+"""
 GB_PID_pump.py
 
-GB_PID控制器，利用Guaranteed Bounded PID控制泵轉速
+GB_PID控制器，利用Guaranteed Bounded PID控制泵轉速。
 
-本研究中的晶片瓦數對應的電源供應器參數設置如下
-1KW：220V_8A
-1.5KW：285V_8A
-1.9KW：332V_8A
+本模塊實現了一個保證有界PID控制器，用於控制冷卻系統中的泵轉速。
+當溫度誤差在指定範圍內時，控制器使用目標溫度作為輸入；當誤差超出範圍時，
+使用實際溫度作為輸入，以確保系統穩定性。
 
-對應的風扇與泵最低轉速如下
-泵：40% duty cycle
-風扇：30% duty cycle
-'''''
+本研究中的晶片瓦數對應的電源供應器參數設置如下：
+    1KW：220V_8A
+    1.5KW：285V_8A
+    1.9KW：332V_8A
+
+對應的風扇與泵最低轉速如下：
+    泵：40% duty cycle
+    風扇：30% duty cycle
+"""
 import time
 import sys
 import os
@@ -24,8 +28,25 @@ from simple_pid import PID
 
 
 class GB_PID_pump:
-    def __init__(self,target, Guaranteed_Bounded_PID_range=0.5,sample_time=1):
-        self.target = target
+    """保證有界PID控制器類，用於控制泵轉速。
+    
+    該控制器實現了一種改進的PID控制策略，當溫度誤差在指定範圍內時使用目標溫度作為
+    控制輸入，當誤差超出範圍時使用實際溫度，以提高系統穩定性和控制效果。
+    
+    Attributes:
+        GB (float): 保證有界的範圍值，定義可接受的溫度誤差範圍。
+        sample_time (float): 控制器的取樣時間，單位為秒。
+        controller (PID): 內部PID控制器實例，用於計算控制輸出。
+    """
+    
+    def __init__(self, target, Guaranteed_Bounded_PID_range=0.5, sample_time=1):
+        """初始化GB_PID_pump控制器。
+        
+        Args:
+            target (float): 目標溫度值。
+            Guaranteed_Bounded_PID_range (float, optional): 保證有界的範圍值。默認為0.5。
+            sample_time (float, optional): 控制器取樣時間，單位為秒。默認為1。
+        """
         self.GB = Guaranteed_Bounded_PID_range
         self.sample_time = sample_time
         self.controller = PID(
@@ -37,12 +58,32 @@ class GB_PID_pump:
             sample_time=sample_time
         )
         self.controller.setpoint = target
+        
     def GB_PID(self, T_real, target):
+        """實現保證有界PID控制策略。
+        
+        根據實際溫度和目標溫度之間的誤差，決定使用哪個溫度值作為控制輸入。
+        
+        Args:
+            T_real (float): 實際測量的溫度值。
+            target (float): 目標溫度值。
+            
+        Returns:
+            float: 控制輸入溫度值，當誤差在範圍內返回目標溫度，否則返回實際溫度。
+        """
         delta = abs(T_real - target)
         if delta <= self.GB:
             return target  # 當誤差在範圍內，返回目標溫度
         else:
             return T_real  # 當誤差超出範圍，返回實際溫度
+            
+    def update_target(self, target):
+        """更新控制器的目標溫度。
+        
+        Args:
+            target (float): 新的目標溫度值。
+        """
+        self.controller.setpoint = target
 
 if __name__ == '__main__':
         # 初始化控制器

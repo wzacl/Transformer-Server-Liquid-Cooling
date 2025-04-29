@@ -12,7 +12,6 @@ import Transformer_enc_dec
 import Transformer
 import torch
 import Sequence_Window_Processor as swp
-import scipy.optimize as optimize
 import math
 import os
 import csv
@@ -24,58 +23,86 @@ class SA_Optimizer:
                  model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth',
                  scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib',
                  figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data'):
+        """初始化模擬退火(SA)風扇轉速最佳化器。
+        
+        Args:
+            adam: ADAM控制器實例。
+            window_size (int, optional): 預測用的數據窗口大小。預設為35。
+            P_max (int, optional): 最大功率值。預設為100。
+            target_temp (int, optional): 目標維持溫度。預設為25。
+            model_path (str, optional): 訓練好的transformer模型路徑。預設為預定義路徑。
+            scaler_path (str, optional): 數據縮放器路徑。預設為預定義路徑。
+            figure_path (str, optional): 輸出圖表保存路徑。預設為預定義路徑。
         """
-        模擬退火(SA)風扇轉速最佳化器初始化
-        """
-        # 保留原有的模型和數據處理相關參數
-        self.P_max = P_max
-        self.target_temp = target_temp
-        self.best_solution = None
-        self.best_cost = float('inf')
-        self.cost_history = []
-        self.base_step = 5
+        # 控制參數
+        self.target_temp = target_temp  # 目標溫度
+        self.P_max = P_max  # 最大功率值
+        self.max_speed_change = 15  # 最大轉速變化限制
+        self.previous_fan_speed = None  # 前一次風扇轉速
         
         # 模擬退火參數
-        self.T_max = 20.0  # 初始溫度
-        self.T_min = 5.0    # 最終溫度
-        self.alpha = 0.6   # 冷卻率
-        self.max_iterations = 1  # 每個溫度的迭代次數
-        self.max_speed_change = 15  # 最大轉速變化限制
+        self.T_max = 10.0  # 初始溫度
+        self.T_min = 5.0  # 最終溫度
+        self.alpha = 5  # 冷卻率，每次下降
+        self.max_iterations = 2  # 每個溫度的迭代次數
+        self.base_step = 5  # 基本步長
         
-        # 目標函數權重保持不變
-        self.w_temp = 10
-        self.w_power = 0.001
+        # 目標函數參數
+        self.w_temp = 10  # 溫度控制項權重
+        self.error_band = 0.3  # 溫度控制項誤差帶
         
-        # 保留原有的模型初始化代碼
-        self.model_path = model_path
-        self.scaler_path = scaler_path
-        self.figure_path = figure_path
-        self.adam = adam
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)
-        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
-        self.model.eval()
+        # 最佳化結果追蹤
+        self.best_solution = None  # 最佳解決方案
+        self.best_cost = float('inf')  # 最佳成本值
+        self.cost_history = []  # 成本歷史記錄
+        
+        # 模型和數據處理相關
+        self.model_path = model_path  # 模型路徑
+        self.scaler_path = scaler_path  # 縮放器路徑
+        self.figure_path = figure_path  # 圖表保存路徑
+        self.adam = adam  # ADAM控制器
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # 計算設備
+        self.model = Transformer.TransformerModel(input_dim=7, hidden_dim=16, output_dim=1, num_layers=1, num_heads=8, dropout=0.01)  # Transformer模型
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))  # 載入模型權重
+        self.model.eval()  # 設置模型為評估模式
         self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, 
-            adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)
-        self.previous_fan_speed = None
+            adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)  # 數據處理器
 
     def predict_temp(self, fan_speed, data):
-        """使用 Transformer 模型進行溫度預測"""
-        data_copy = data.copy()
-        data_copy[-1][5] = fan_speed
-        input_tensor = self.data_processor.transform_input_data(data_copy)
+        """使用Transformer模型預測溫度。
+        
+        Args:
+            fan_speed (float): 用於預測的風扇轉速值。
+            data (list): 輸入數據序列。
+            
+        Returns:
+            list or None: 預測的溫度序列，若預測失敗則返回None。
+        """
+        data_copy = data.copy()  # 複製數據以避免修改原始數據
+        data_copy[-1][5] = fan_speed  # 設置風扇轉速值
+        input_tensor = self.data_processor.transform_input_data(data_copy)  # 轉換輸入數據為張量
 
         if input_tensor is not None:
             with torch.no_grad():
-                scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()
-                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)
+                scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()  # 獲取縮放後的預測結果
+                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)  # 反轉縮放
                 return predicted_temps
         return None
 
     def objective_function(self, fan_speed, predicted_temps, error, current_temp):
-        """目標函數，加入過熱與過冷的懲罰項"""
+        """計算最佳化的目標函數值。
+        
+        Args:
+            fan_speed (float): 當前風扇轉速。
+            predicted_temps (list): 預測的溫度序列。
+            error (float): 溫度誤差。
+            current_temp (float): 當前溫度。
+            
+        Returns:
+            float: 目標函數值（成本）。
+        """
         if predicted_temps is None:
-            return float('inf')
+            return float('inf')  # 若預測失敗，返回無窮大成本
         '''
         #斜率變化計算項
         if predicted_temps is not None and len(predicted_temps) > 0:
@@ -100,8 +127,6 @@ class SA_Optimizer:
             if abs(error) < 0.5:
                 slope_penalty *= 0.5
         '''
-        # 溫度控制項
-        temp_error = 0
         '''
         # 速度平滑項
         speed_smooth = 0
@@ -116,144 +141,143 @@ class SA_Optimizer:
                 smooth_weight = 3.0 * temp_diff_ratio  # 當溫度非常接近時，權重最高可達3.0
                 speed_smooth *= smooth_weight
         '''
+        # 溫度控制項
+        temp_error = 0  # 溫度誤差累計
+
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
-            if abs(i - self.target_temp) > 0.3:
-                temp_diff = (abs(i - self.target_temp)*10)**2
+            if abs(i - self.target_temp) > self.error_band:
+                temp_diff = (abs(i - self.target_temp)*10)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
 
         # 總成本
-        total_cost = temp_error
+        total_cost = temp_error  # 總成本等於溫度誤差
         
         return total_cost
 
-    def generate_neighbor(self, current_speed, current_temp=None):
-        """生成鄰近解"""
+    def generate_neighbor(self, current_speed):
+        """為當前風扇轉速生成鄰近解。
+        
+        Args:
+            current_speed (float): 當前風扇轉速。
+            
+        Returns:
+            int: 新的風扇轉速值。
+        """
         if self.previous_fan_speed is not None:
-            # 在當前溫度下動態調整步長
-            max_change = min(self.max_speed_change, abs(self.T_current))
-            # 確保變化是self.base_step的倍數
-            max_steps = int(max_change / self.base_step)
+            max_steps = int(abs(self.T_current) / self.base_step)  # 根據當前溫度計算最大步數
             if max_steps == 0:
                 max_steps = 1
-                
-            # 當系統溫度與目標溫度接近時，限制下限為1個基本步長
-            steps = random.randint(-max_steps, max_steps)
-                
-            delta = steps * self.base_step
-            new_speed = current_speed + delta
+            # 生成隨機步長
+            steps = random.randint(-max_steps, max_steps)  # 隨機步長
+            #進行轉速變化
+            delta = steps * self.base_step  # 轉速變化量
+            new_speed = current_speed + delta  # 新轉速
         else:
             # 首次運行時的範圍更大
-            new_speed = random.uniform(40, 100)
+            new_speed = random.uniform(40, 100)  # 隨機生成40-100之間的轉速
             # 近似到最接近的self.base_step倍數
-            new_speed = round(new_speed / self.base_step) * self.base_step
+            new_speed = round(new_speed / self.base_step) * self.base_step  # 四捨五入到基本步長的倍數
             
         # 確保在合理範圍內
-        new_speed = max(40, min(100, new_speed))
-        # 如果有前一個速度，確保變化不超過限制
-        if self.previous_fan_speed is not None:
-            max_change = self.max_speed_change
-            lower_bound = self.previous_fan_speed - max_change
-            upper_bound = self.previous_fan_speed + max_change
-            new_speed = max(lower_bound, min(upper_bound, new_speed))
-            # 近似到最接近的self.base_step倍數
-            new_speed = round(new_speed / self.base_step) * self.base_step
+        new_speed = max(40, min(100, new_speed))  # 限制轉速在40-100之間
         
         return int(new_speed)
 
     def optimize(self):
-        """使用模擬退火算法進行優化"""
-        fixed_window_data = self.data_processor.get_window_data(normalize=False)
+        """執行模擬退火最佳化算法。
+        
+        Returns:
+            tuple: 包含(最佳風扇轉速, 最佳成本)的元組，若數據收集失敗則返回(None, None)。
+        """
+        fixed_window_data = self.data_processor.get_window_data(normalize=False)  # 獲取窗口數據
         if fixed_window_data is None:
             return None, None
 
         else:
-            current_temp = fixed_window_data[-1][1]
-            past_temp = fixed_window_data[-10][1]
-            error = current_temp - past_temp
+            current_temp = fixed_window_data[-1][1]  # 當前溫度
+            past_temp = fixed_window_data[-10][1]  # 過去溫度
+            error = current_temp - past_temp  # 溫度變化誤差
             print("✅ 數據蒐集完成，開始進行模擬退火最佳化")
         
         # 初始解
-        if self.previous_fan_speed is not None:
-            current_speed = self.previous_fan_speed
+        if self.adam.buffer[8] is not None:
+            self.previous_fan_speed = self.adam.buffer[8]
+            current_speed = self.previous_fan_speed  # 使用前一次的風扇轉速
         else:
-
-            temp_change = abs(current_temp - past_temp)
-            
-            if current_temp - self.target_temp > 2:
-                # 基本轉速計算
-                base_speed = min(100, max(60, 60 + (current_temp - self.target_temp) * 10))
-            else:
-                current_speed = 60
+            self.adam.update_duty_cycles(fan_duty=60)
+            current_speed = self.adam.buffer[8]  # 默認轉速
         
-        current_speed = round(current_speed)
-        best_speed = current_speed
+        best_speed = round(current_speed)  # 最佳轉速初始值
         
         # 計算初始解的成本
-        predicted_temps = self.predict_temp(current_speed, fixed_window_data)
-        current_cost = self.objective_function(current_speed, predicted_temps, error,current_temp)
-        best_cost = current_cost
+        predicted_temps = self.predict_temp(current_speed, fixed_window_data)  # 預測溫度
+        current_cost = self.objective_function(current_speed, predicted_temps, error, current_temp)  # 計算當前成本
+        best_cost = current_cost  # 最佳成本初始值
         
         # 顯示初始解的預測溫度變化方向
         if predicted_temps is not None and len(predicted_temps) > 0:
-            predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)
-            direction = "降溫" if predicted_slope < 0 else "升溫"
+            predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)  # 預測溫度斜率
+            direction = "降溫" if predicted_slope < 0 else "升溫"  # 溫度變化方向
             print(f"🌡️ 初始解: 風扇轉速 = {current_speed}%, 預測溫度變化方向: {direction}, 斜率: {predicted_slope:.4f}")
             # 顯示每個時間步的預測溫度
             print(f"   預測溫度序列: {[f'{temp:.2f}' for temp in predicted_temps]}")
         
         # 模擬退火主循環
-        T = self.T_max
+        T = self.T_max  # 初始溫度
         while T > self.T_min:
             self.T_current = T  # 保存當前溫度用於生成鄰近解
             
             for _ in range(self.max_iterations):
                 # 生成新解
-                new_speed = self.generate_neighbor(current_speed, current_temp)
-                predicted_temps = self.predict_temp(new_speed, fixed_window_data)
-                new_cost = self.objective_function(new_speed, predicted_temps, error,current_temp)
+                new_speed = self.generate_neighbor(current_speed)  # 生成鄰近解
+                predicted_temps = self.predict_temp(new_speed, fixed_window_data)  # 預測新解的溫度
+                new_cost = self.objective_function(new_speed, predicted_temps, error, current_temp)  # 計算新解的成本
                 
                 # 計算成本差異
-                delta_cost = new_cost - current_cost
+                delta_cost = new_cost - current_cost  # 成本變化
                 
                 # 顯示所有解的預測溫度變化方向
                 if predicted_temps is not None and len(predicted_temps) > 0:
-                    predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)
-                    direction = "降溫" if predicted_slope < 0 else "升溫"
+                    predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)  # 預測溫度斜率
+                    direction = "降溫" if predicted_slope < 0 else "升溫"  # 溫度變化方向
                     print(f"🔍 嘗試解: 風扇轉速 = {new_speed}%, 預測溫度變化方向: {direction}, 斜率: {predicted_slope:.4f}, 成本: {new_cost:.2f}")
                     # 顯示每個時間步的預測溫度
                     print(f"   預測溫度序列: {[f'{temp:.2f}' for temp in predicted_temps]}")
                 
-                # Metropolis準則
-                accept = delta_cost < 0 or random.random() < math.exp(-delta_cost / T)
+                '''Metropolis準則
+                如果新解的成本比當前解更低，則接受新解
+                如果新解的成本比當前解更高，則以一定的概率接受新解，這個概率與溫度T和成本差異delta_cost有關
+                '''
+                accept = delta_cost < 0 or random.random() < math.exp(-delta_cost / T)  
                 if accept:
-                    current_speed = new_speed
-                    current_cost = new_cost
+                    current_speed = new_speed  # 更新當前解
+                    current_cost = new_cost  # 更新當前成本
                     
                     # 更新最佳解
                     if current_cost < best_cost:
-                        best_speed = current_speed
-                        best_cost = current_cost
+                        best_speed = current_speed  # 更新最佳轉速
+                        best_cost = current_cost  # 更新最佳成本
                         print(f"🌟 發現更好的解: 風扇轉速 = {best_speed}%, 成本 = {best_cost:.2f}")
                 
                 # 顯示是否接受新解
                 print(f"   {'✅ 接受' if accept else '❌ 拒絕'}此解")
             
             # 降溫
-            T *= self.alpha
+            T *= self.alpha  # 溫度下降
             print(f"🌡️ 當前溫度: {T:.2f}, 當前最佳轉速: {best_speed}%")
         
         # 更新歷史記錄
-        self.cost_history.append(best_cost)
-        self.previous_fan_speed = best_speed
+        self.cost_history.append(best_cost)  # 記錄成本歷史
+        self.previous_fan_speed = best_speed  # 更新前一次風扇轉速
         
         # 顯示最終解的預測溫度變化方向
-        final_predicted_temps = self.predict_temp(best_speed, fixed_window_data)
+        final_predicted_temps = self.predict_temp(best_speed, fixed_window_data)  # 預測最終解的溫度
         if final_predicted_temps is not None and len(final_predicted_temps) > 0:
-            final_predicted_slope = (final_predicted_temps[-1] - current_temp) / len(final_predicted_temps)
-            final_direction = "降溫" if final_predicted_slope < 0 else "升溫"
+            final_predicted_slope = (final_predicted_temps[-1] - current_temp) / len(final_predicted_temps)  # 最終預測溫度斜率
+            final_direction = "降溫" if final_predicted_slope < 0 else "升溫"  # 最終溫度變化方向
             print(f"📊 最終解: 風扇轉速 = {best_speed}%, 預測溫度變化方向: {final_direction}, 斜率: {final_predicted_slope:.4f}")
             # 顯示每個時間步的最終預測溫度
             print(f"   最終預測溫度序列: {[f'{temp:.2f}' for temp in final_predicted_temps]}")
