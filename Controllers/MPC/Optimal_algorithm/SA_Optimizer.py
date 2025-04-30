@@ -41,15 +41,16 @@ class SA_Optimizer:
         self.previous_fan_speed = None  # 前一次風扇轉速
         
         # 模擬退火參數
-        self.T_max = 10.0  # 初始溫度
+        self.T_max = 15.0  # 初始溫度
         self.T_min = 5.0  # 最終溫度
-        self.alpha = 5  # 冷卻率，每次下降
-        self.max_iterations = 2  # 每個溫度的迭代次數
+        self.alpha = 0.7  # 冷卻率，每次下降
+        self.max_iterations = 5  # 每個溫度的迭代次數
         self.base_step = 5  # 基本步長
         
         # 目標函數參數
-        self.w_temp = 10  # 溫度控制項權重
-        self.error_band = 0.3  # 溫度控制項誤差帶
+        self.w_temp = 1  # 溫度控制項權重
+        self.w_speed = 0  # 速度平滑項權重
+        self.error_band = 0.2  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -86,7 +87,9 @@ class SA_Optimizer:
             with torch.no_grad():
                 scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()  # 獲取縮放後的預測結果
                 predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)  # 反轉縮放
-                return predicted_temps
+                # 將預測溫度四捨五入到小數點後第一位
+                rounded_temps = [round(temp, 1) for temp in predicted_temps]
+                return rounded_temps
         return None
 
     def objective_function(self, fan_speed, predicted_temps, error, current_temp):
@@ -127,33 +130,33 @@ class SA_Optimizer:
             if abs(error) < 0.5:
                 slope_penalty *= 0.5
         '''
-        '''
+        
         # 速度平滑項
         speed_smooth = 0
         if self.previous_fan_speed is not None:
-            speed_change = fan_speed - self.previous_fan_speed
-            speed_smooth = speed_change /2
-            
+            speed_change = abs(fan_speed - self.previous_fan_speed)
+            speed_smooth = speed_change**2 
+            """
             # 當溫度與目標溫度接近時，增加速度平滑項的權重，使轉速更快收斂
             if abs(current_temp - self.target_temp) < 1.0:
                 # 溫度越接近目標，速度平滑權重越高
                 temp_diff_ratio = max(0.1, 1 - abs(current_temp - self.target_temp))
                 smooth_weight = 3.0 * temp_diff_ratio  # 當溫度非常接近時，權重最高可達3.0
                 speed_smooth *= smooth_weight
-        '''
-        # 溫度控制項
-        temp_error = 0  # 溫度誤差累計
-
+            """
+        
+      
+        temp_error = 0
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*10)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*9)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
 
         # 總成本
-        total_cost = temp_error  # 總成本等於溫度誤差
+        total_cost =self.w_temp * temp_error + self.w_speed * speed_smooth  # 總成本等於溫度誤差
         
         return total_cost
 
@@ -170,9 +173,16 @@ class SA_Optimizer:
             max_steps = int(abs(self.T_current) / self.base_step)  # 根據當前溫度計算最大步數
             if max_steps == 0:
                 max_steps = 1
-            # 生成隨機步長
-            steps = random.randint(-max_steps, max_steps)  # 隨機步長
-            #進行轉速變化
+                
+            # 特殊處理邊界值情況
+            if current_speed == 40:  # 當轉速為最小值時，只能向上生成
+                steps = random.randint(0, max_steps)  # 隨機正步長
+            elif current_speed == 100:  # 當轉速為最大值時，只能向下生成
+                steps = random.randint(-max_steps, 0)  # 隨機負步長
+            else:  # 非邊界值時，正常生成
+                steps = random.randint(-max_steps, max_steps)  # 隨機步長
+                
+            # 進行轉速變化
             delta = steps * self.base_step  # 轉速變化量
             new_speed = current_speed + delta  # 新轉速
         else:
@@ -181,7 +191,7 @@ class SA_Optimizer:
             # 近似到最接近的self.base_step倍數
             new_speed = round(new_speed / self.base_step) * self.base_step  # 四捨五入到基本步長的倍數
             
-        # 確保在合理範圍內
+        # 確保在合理範圍內 (以防萬一)
         new_speed = max(40, min(100, new_speed))  # 限制轉速在40-100之間
         
         return int(new_speed)
@@ -210,7 +220,7 @@ class SA_Optimizer:
             self.adam.update_duty_cycles(fan_duty=60)
             current_speed = self.adam.buffer[8]  # 默認轉速
         
-        best_speed = round(current_speed)  # 最佳轉速初始值
+        best_speed = current_speed  # 最佳轉速初始值
         
         # 計算初始解的成本
         predicted_temps = self.predict_temp(current_speed, fixed_window_data)  # 預測溫度

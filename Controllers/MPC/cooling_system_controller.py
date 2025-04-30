@@ -7,6 +7,9 @@
 import time
 import sys
 import os
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/GB_PID')
 from collections import deque
 import math
 import numpy as np
@@ -331,7 +334,7 @@ class DisplayManager:
                   f"成本 {last_opt['cost']:.2f}{self.Colors.RESET}")
             print("="*50)
 
-    def get_trend(self, current: float, previous: float) -> str:
+    def get_trend(self, current, previous):
         """獲取數值變化趨勢的視覺指示符。
         
         Args:
@@ -348,9 +351,43 @@ class DisplayManager:
         elif current < previous - 0.1:
             return f"{self.Colors.GREEN}{self.DOWN_ARROW}{self.Colors.RESET}"
         return f"{self.Colors.BLUE}{self.STABLE}{self.Colors.RESET}"
+    
+    def validate_temp(self, temp):
+        """驗證溫度值是否合理
+        
+        Args:
+            temp: 待驗證的溫度值
+            
+        Returns:
+            格式化的溫度字符串或"N/A"
+        """
+        try:
+            if temp is None or math.isnan(temp) or abs(temp) > 200:
+                return "N/A"
+            return f"{float(temp):.1f}°C"
+        except:
+            return "N/A"
+            
+    def align_text(self, text, width, align='left'):
+        """將文字對齊到特定寬度
+        
+        Args:
+            text: 要對齊的文字
+            width: 目標寬度
+            align: 對齊方式 (left, right, center)
+            
+        Returns:
+            對齊後的文字
+        """
+        if align == 'left':
+            return str(text).ljust(width)
+        elif align == 'right':
+            return str(text).rjust(width)
+        elif align == 'center':
+            return str(text).center(width)
+        return str(text)
 
-    def display_temp_status(self, temps: Dict[str, float], trends: Dict[str, str],
-                          targets: Dict[str, float]):
+    def display_temp_status(self, temps, trends, targets):
         """顯示溫度狀態信息。
         
         Args:
@@ -358,18 +395,169 @@ class DisplayManager:
             trends: 各測量點溫度變化趨勢字典
             targets: 各測量點目標溫度字典
         """
-        # 實現溫度狀態顯示邏輯
-        pass
+        T_GPU = temps.get('T_GPU')
+        T_CDU_out = temps.get('T_CDU_out')
+        T_env = temps.get('T_env')
+        T_air_in = temps.get('T_air_in')
+        T_air_out = temps.get('T_air_out')
+        
+        gpu_trend = trends.get('gpu', '')
+        cdu_trend = trends.get('cdu', '')
+        
+        gpu_target = targets.get('gpu_target')
+        cdu_target = targets.get('cdu_target')
+        
+        temp_diff = gpu_target - T_GPU if T_GPU is not None and gpu_target is not None else 0
+        cdu_diff = cdu_target - T_CDU_out if T_CDU_out is not None and cdu_target is not None else 0
+        
+        status = "🔥" if temp_diff < 0 else "✓" if abs(temp_diff) < 2 else "❄️"
+        
+        print("\n" + "="*50)
+        print(f"{self.Colors.BOLD}🌡️ 溫度監控 | {time.strftime('%H:%M:%S')}{self.Colors.RESET}")
+        print("-"*50)
+        
+        # 固定寬度顯示，確保排列整齊
+        w1, w2, w3, w4 = 12, 10, 6, 22  # 各欄位寬度
+        
+        # GPU溫度
+        temp_val = self.validate_temp(T_GPU)
+        target_val = f"目標: {gpu_target}°C (差: {abs(temp_diff):.1f}°C) {status}"
+        print(f"{self.align_text('GPU溫度:', w1)} {self.align_text(temp_val, w2)} {self.align_text(gpu_trend, w3)} | {target_val}")
+        
+        # 冷卻水出口溫度
+        temp_val = self.validate_temp(T_CDU_out)
+        target_val = f"目標: {cdu_target}°C (差: {abs(cdu_diff):.1f}°C)"
+        print(f"{self.align_text('冷卻水出口:', w1)} {self.align_text(temp_val, w2)} {self.align_text(cdu_trend, w3)} | {target_val}")
+        
+        # 環境溫度
+        print(f"{self.align_text('環境溫度:', w1)} {self.align_text(self.validate_temp(T_env), w2)}")
+        
+        # 空氣入出口溫度
+        if T_air_in is not None and T_air_out is not None:
+            air_temps = f"{self.validate_temp(T_air_in)} / {self.validate_temp(T_air_out)}"
+            air_diff = abs(T_air_out-T_air_in) if T_air_in is not None and T_air_out is not None else 0
+            print(f"{self.align_text('空氣入/出口:', w1)} {self.align_text(air_temps, w2+w3+3)} | 差: {air_diff:.1f}°C")
 
-    def display_control_status(self, duties: Dict[str, float], trends: Dict[str, str]):
+    def display_control_status(self, duties, trends):
         """顯示控制器狀態信息。
         
         Args:
             duties: 各執行器佔空比字典
             trends: 各執行器佔空比變化趨勢字典
         """
-        # 實現控制狀態顯示邏輯
-        pass
+        pump_duty = duties.get('pump_duty')
+        fan_duty = duties.get('fan_duty')
+        new_pump_duty = duties.get('new_pump_duty')
+        
+        pump_trend = trends.get('pump', '')
+        fan_trend = trends.get('fan', '')
+        counter = duties.get('counter', 0)
+        
+        print("\n" + "="*50)
+        print(f"{self.Colors.BOLD}⚙️ 控制狀態 | 週期: {counter}{self.Colors.RESET}")
+        print("-"*50)
+        
+        # 固定寬度顯示
+        w1, w2, w3, w4 = 12, 6, 6, 26
+        
+        # 泵轉速
+        duty_val = f"{pump_duty}%"
+        new_val = f"{new_pump_duty}% ({'+' if new_pump_duty > pump_duty else '-' if new_pump_duty < pump_duty else '='}{abs(new_pump_duty - pump_duty)}%)"
+        print(f"{self.align_text('泵轉速:', w1)} {self.align_text(duty_val, w2)} {self.align_text(pump_trend, w3)} → {new_val}")
+        
+        # 風扇轉速
+        duty_val = f"{fan_duty}%"
+        print(f"{self.align_text('風扇轉速:', w1)} {self.align_text(duty_val, w2)} {self.align_text(fan_trend, w3)} → 等待優化...")
+        
+    def display_control_strategy(self, control_temp, gpu_target):
+        """顯示控制策略信息。
+        
+        Args:
+            control_temp: 控制溫度
+            gpu_target: GPU目標溫度
+        """
+        print("\n" + "="*50)
+        print(f"{self.Colors.BOLD}🔧 控制策略{self.Colors.RESET}")
+        print("-"*50)
+        print(f"💧 泵控制 (PID):")
+        print(f"   目標GPU溫度: {gpu_target}°C")
+        print(f"   控制溫度: {self.validate_temp(control_temp)}")
+        
+    def display_fan_optimization(self):
+        """顯示風扇優化進度。
+        
+        顯示風扇優化計算過程的狀態信息。
+        """
+        print("-"*50)
+        print(f"{self.Colors.YELLOW}{self.Colors.BOLD}🌀 風扇優化 (SA) - ⏳ 執行中...{self.Colors.RESET}")
+        
+    def display_optimization_result(self, optimal_fan_speed, optimal_cost, 
+                                  fan_duty, optimization_time):
+        """顯示風扇優化結果。
+        
+        Args:
+            optimal_fan_speed: 優化後的風扇速度(%)
+            optimal_cost: 優化算法計算的成本
+            fan_duty: 優化前的風扇速度(%)
+            optimization_time: 優化計算耗時(秒)
+        """
+        fan_change = optimal_fan_speed - fan_duty
+        
+        # 添加到歷史記錄
+        timestamp = time.strftime('%H:%M:%S')
+        self.optimization_history.append({
+            'time': timestamp,
+            'fan_speed': optimal_fan_speed,
+            'change': fan_change,
+            'cost': optimal_cost,
+            'opt_time': optimization_time
+        })
+        
+        # 產生提示音
+        print('\a', end='', flush=True)  # 使用系統提示音
+        
+        # 添加醒目的分隔線
+        print(f"\n{self.Colors.YELLOW}{'★'*30}{self.Colors.RESET}")
+        
+        # 顯示當前結果
+        print(f"{self.Colors.BOLD}{self.Colors.GREEN}✅ 風扇優化完成! {self.Colors.RESET}")
+        print(f"{self.Colors.BOLD}{self.Colors.GREEN}✓ 最佳風扇轉速: {optimal_fan_speed}% ({'+' if fan_change > 0 else '-' if fan_change < 0 else '='}{abs(fan_change)}%){self.Colors.RESET}")
+        print(f"{self.Colors.BOLD}📊 優化成本: {optimal_cost:.2f} | ⏱️ 優化耗時: {optimization_time:.2f}秒{self.Colors.RESET}")
+        
+        # 醒目的結束分隔線
+        print(f"{self.Colors.YELLOW}{'★'*30}{self.Colors.RESET}\n")
+        
+        # 添加短暫延遲，確保使用者能看到結果
+        time.sleep(1)
+        
+    def display_optimization_history(self):
+        """顯示優化歷史記錄。
+        
+        顯示最近幾次的風扇優化結果記錄。
+        """
+        if not self.optimization_history:
+            return
+        
+        print("-"*50)
+        print(f"{self.Colors.BOLD}{self.Colors.CYAN}📜 優化歷史記錄 (最近{len(self.optimization_history)}次){self.Colors.RESET}")
+        for i, entry in enumerate(reversed(self.optimization_history), 1):
+            print(f"{i}. [{entry['time']}] 風扇: {entry['fan_speed']}% ({'+' if entry['change'] > 0 else '-' if entry['change'] < 0 else '='}{abs(entry['change'])}%) | 成本: {entry['cost']:.2f}")
+    
+    def display_control_options(self, gpu_target, target_temp, experiment_mode=False):
+        """顯示控制選項和說明。
+        
+        Args:
+            gpu_target: GPU目標溫度
+            target_temp: 系統目標溫度
+            experiment_mode: 實驗模式狀態
+        """
+        print("\n" + "="*50)
+        print(f"{self.Colors.BOLD}📋 控制選項{self.Colors.RESET}")
+        print("-"*50)
+        print(f"📌 目標設定: GPU={gpu_target}°C | 冷卻水={target_temp}°C")
+        if experiment_mode:
+            print(f"🧪 實驗模式: 啟用中")
+        print(f"📝 按下 Ctrl+C 停止程序")
 
 class HardwareController:
     """硬體控制類
@@ -464,6 +652,9 @@ class CoolingSystemController:
         # 初始化實驗模式
         self.experiment_mode = ExperimentMode(control_params)
         
+        # 儲存原始 print 函數用於過濾日誌
+        self.original_print = print
+        
         # 初始化優化器和控制器
         self.sa_optimizer = SA_Optimizer.SA_Optimizer(
             adam=self.hardware.adam,
@@ -543,6 +734,12 @@ class CoolingSystemController:
         啟動控制循環並處理異常情況。
         """
         try:
+            print("\n" + "="*50)
+            print("📊 系統初始化中")
+            print("⚡ 初始化SA優化器 | 冷卻水目標溫度: {}°C | 最大功率: {}%".format(
+                self.control_params.target_temp, self.control_params.p_max))
+            print("="*50)
+            
             self.hardware.initialize_hardware(self.control_params)
             while self.running:
                 # 檢查實驗模式是否需要更新目標溫度
@@ -558,7 +755,7 @@ class CoolingSystemController:
             print(f"\n❌ 發生錯誤: {e}")
         finally:
             self.hardware.cleanup()
-            print("\n✅ 程序已結束，資源已釋放")
+            print(f"\n✅ 程序已結束，資源已釋放")
 
     def _control_loop(self):
         """控制迴圈的主要邏輯。
@@ -566,30 +763,102 @@ class CoolingSystemController:
         執行一次控制循環，包括獲取溫度、計算控制輸出和更新執行器。
         """
         # 獲取溫度數據
-        temps = self._get_temperatures()
-        if not any(temps):
+        temps_data = self._get_temperatures()
+        if not temps_data:
             return
 
         # 更新顯示
         self.display.clear_terminal()
         
+        # 計算趨勢
+        trends = {
+            'gpu': self.display.get_trend(temps_data['T_GPU'], self.prev_states['temp_gpu']),
+            'cdu': self.display.get_trend(temps_data['T_CDU_out'], self.prev_states['temp_cdu']),
+            'fan': self.display.get_trend(temps_data['fan_duty'], self.prev_states['fan_duty']),
+            'pump': self.display.get_trend(temps_data['pump_duty'], self.prev_states['pump_duty'])
+        }
+        
+        # 更新歷史數據
+        self.prev_states['temp_gpu'] = temps_data['T_GPU']
+        self.prev_states['temp_cdu'] = temps_data['T_CDU_out']
+        self.prev_states['fan_duty'] = temps_data['fan_duty']
+        self.prev_states['pump_duty'] = temps_data['pump_duty']
+        
         # 計算控制輸出
         control_temp = self.pump_controller.GB_PID(
-            temps['T_GPU'],
+            temps_data['T_GPU'],
             self.control_params.gpu_target
         )
         new_pump_duty = round(
             self.pump_controller.controller(control_temp) / 10
         ) * 10
+        
+        # 顯示溫度狀態
+        self.display.display_temp_status(
+            temps=temps_data,
+            trends=trends,
+            targets={
+                'gpu_target': self.control_params.gpu_target,
+                'cdu_target': self.control_params.target_temp
+            }
+        )
+        
+        # 顯示控制狀態
+        self.display.display_control_status(
+            duties={
+                'pump_duty': temps_data['pump_duty'],
+                'fan_duty': temps_data['fan_duty'],
+                'new_pump_duty': new_pump_duty,
+                'counter': self.counter
+            },
+            trends=trends
+        )
 
         # 更新泵的轉速
         self.hardware.pump.set_duty_cycle(new_pump_duty)
         self.hardware.adam.update_duty_cycles(pump_duty=new_pump_duty)
+        
+        # 顯示控制策略
+        self.display.display_control_strategy(control_temp, self.control_params.gpu_target)
 
         # 定期執行風扇優化
         if self.counter % self.control_params.control_frequency == 0:
-            self._optimize_fan_speed(temps['fan_duty'])
-
+            self.display.display_fan_optimization()
+            
+            # 替換SA_Optimizer中的print函數，減少輸出
+            SA_Optimizer.print = lambda *args, **kwargs: self.filter_sa_logs(*args, **kwargs)
+            
+            start_time = time.time()
+            optimal_fan_speed, optimal_cost = self.sa_optimizer.optimize()
+            optimization_time = time.time() - start_time
+            
+            # 恢復原始print函數
+            SA_Optimizer.print = print
+            
+            if optimal_fan_speed is not None:
+                # 先顯示優化結果，再改變設定，使結果更容易被看到
+                self.display.display_optimization_result(
+                    optimal_fan_speed,
+                    optimal_cost,
+                    temps_data['fan_duty'],
+                    optimization_time
+                )
+                
+                # 更新風扇設定
+                self.hardware.fan1.set_all_duty_cycle(int(optimal_fan_speed))
+                self.hardware.fan2.set_all_duty_cycle(int(optimal_fan_speed))
+                self.hardware.adam.update_duty_cycles(fan_duty=int(optimal_fan_speed))
+                
+                # 顯示優化歷史記錄
+                self.display.display_optimization_history()
+                
+                # 顯示控制選項
+                self.display.display_control_options(
+                    self.control_params.gpu_target,
+                    self.control_params.target_temp,
+                    self.experiment_mode.enabled
+                )
+        
         self.counter += 1
 
     def _get_temperatures(self) -> Dict[str, float]:
@@ -613,41 +882,31 @@ class CoolingSystemController:
             }
         return {}
 
-    def _optimize_fan_speed(self, current_fan_duty: float):
-        """優化風扇速度。
+    def filter_sa_logs(self, *args, **kwargs):
+        """過濾SA優化器輸出，只保留關鍵信息"""
+        message = " ".join(map(str, args))
         
-        使用模擬退火算法優化風扇速度以達到最佳冷卻效果。
+        # 關鍵信息清單 - 只保留這些信息
+        key_phrases = [
+            "數據蒐集完成",
+            "初始解",
+            "最終解",
+            "最佳化完成",
+        ]
         
-        Args:
-            current_fan_duty: 當前風扇佔空比
-        """
-        self.display.display_fan_optimization()
-        start_time = time.time()
-        optimal_fan_speed, optimal_cost = self.sa_optimizer.optimize()
-        optimization_time = time.time() - start_time
-
-        if optimal_fan_speed is not None:
-            self.display.display_optimization_result(
-                optimal_fan_speed,
-                optimal_cost,
-                current_fan_duty,
-                optimization_time
-            )
-            
-            # 更新風扇設定
-            self.hardware.fan1.set_all_duty_cycle(int(optimal_fan_speed))
-            self.hardware.fan2.set_all_duty_cycle(int(optimal_fan_speed))
-            self.hardware.adam.update_duty_cycles(fan_duty=int(optimal_fan_speed))
+        # 檢查是否為關鍵信息
+        if any(phrase in message for phrase in key_phrases):
+            self.original_print(*args, **kwargs)
 
 if __name__ == "__main__":
-    try:
+
         # 配置示例
         hardware_config = HardwareConfig()
         model_config = ModelConfig(
             scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib",
             model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth",
             exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400",
-            exp_var="Fan_MPC_data_test.csv",
+            exp_var="Fan_MPC_data_var_target_test_9",
         )
         control_params = ControlParameters()
 
@@ -659,14 +918,12 @@ if __name__ == "__main__":
         )
         
         # 測試實驗模式 (若需要測試，取消以下註釋)
-        # controller.start_experiment_mode(
-        #     period=180,  # 3分鐘變化一次
-        #     gpu_targets=[70, 73, 75, 72],
-        #     system_targets=[28, 30, 33, 31]
-        # )
+        controller.start_experiment_mode(
+            period=300,  # 5分鐘變化一次
+            gpu_targets=[70,70,70,70,70,70],
+            system_targets=[28,24,28,30,24,28]
+        )
         
         controller.run() 
-    except Exception as e:
-        print(f"\n❌ 發生錯誤: {e}")
-    finally:
-        print("\n✅ 程序已結束，資源已釋放")
+
+ 

@@ -38,7 +38,7 @@ model_name = 'no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_
 #設置實驗資料放置的資料夾
 exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/{model_name}'
 #設置實驗資料檔案名稱
-exp_var = 'Fan_MPC_data_test.csv'
+exp_var = 'Fan_MPC_data_test_測試'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty']
 
@@ -249,6 +249,7 @@ def display_optimization_result(optimal_fan_speed, optimal_cost, fan_duty, optim
     
     # 醒目的結束分隔線
     print(f"{Colors.YELLOW}{'★'*30}{Colors.RESET}\n")
+    time.sleep(1)
 
 # 新增: 顯示優化歷史記錄的函數
 def display_optimization_history():
