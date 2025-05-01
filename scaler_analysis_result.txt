@@ -1,0 +1,101 @@
+成功載入scaler文件
+Scaler類型: <class 'tuple'>
+Scaler是一個元組，長度: 2
+
+===== 輸入Scaler (MinMaxScaler) =====
+類型: <class 'sklearn.preprocessing._data.MinMaxScaler'>
+
+原始數據範圍:
+T_GPU: 47.60 至 74.70
+T_CDU_out: 21.90 至 36.40
+T_CDU_in: 24.10 至 40.80
+T_air_in: 18.20 至 888888.00
+T_air_out: 22.80 至 30.50
+fan_duty: 20.00 至 100.00
+pump_duty: 40.00 至 100.00
+
+標準化後的範圍:
+T_GPU: 0.0000 至 1.0000
+T_CDU_out: 0.0000 至 1.0000
+T_CDU_in: 0.0000 至 1.0000
+T_air_in: 0.0000 至 1.0000
+T_air_out: 0.0000 至 1.0000
+fan_duty: 0.0000 至 1.0000
+pump_duty: 0.0000 至 1.0000
+
+===== 輸出Scaler (MinMaxScaler) =====
+類型: <class 'sklearn.preprocessing._data.MinMaxScaler'>
+輸出特徵: T_CDU_out
+原始數據範圍: 21.90 至 36.40
+標準化後範圍: 0.0000 至 1.0000
+
+===== 測試映射 =====
+原始測試數據:
+T_GPU: 50
+T_CDU_out: 35
+T_CDU_in: 30
+T_air_in: 25
+T_air_out: 30
+fan_duty: 80
+pump_duty: 80
+
+正規化後的數據:
+T_GPU: 0.088561
+T_CDU_out: 0.903448
+T_CDU_in: 0.353293
+T_air_in: 0.000008
+T_air_out: 0.935065
+fan_duty: 0.750000
+pump_duty: 0.666667
+
+===== 檢查Sequence_Window_Processor.py文件中的特徵順序 =====
+Sequence_Window_Processor.py中的特徵順序:
+0: T_GPU
+1: T_CDU_out
+2: T_CDU_in
+3: T_air_in
+4: T_air_out
+5: fan_duty
+6: pump_duty
+
+===== 結論 =====
+✅ 映射檔案中的特徵順序與Sequence_Window_Processor.py中定義的順序完全一致!
+特徵順序為:
+0: T_GPU
+1: T_CDU_out
+2: T_CDU_in
+3: T_air_in
+4: T_air_out
+5: fan_duty
+6: pump_duty
+
+在Sequence_Window_Processor.py的update_from_adam中使用的ADAM索引:
+self.adam.buffer[0]  # T_GPU
+self.adam.buffer[3]  # T_CDU_out
+self.adam.buffer[2]  # T_CDU_in
+self.adam.buffer[5]  # T_air_in
+self.adam.buffer[6]  # T_air_out
+self.adam.buffer[8]  # fan_duty
+self.adam.buffer[9]  # pump_duty
+
+===== 對SequenceWindowProcessor的特徵排序評估 =====
+根據提供的Sequence_Window_Processor.py文件中的update_from_adam方法,
+該方法使用如下順序從adam.buffer獲取數據:
+self.adam.buffer[0] -> T_GPU
+self.adam.buffer[3] -> T_CDU_out
+self.adam.buffer[2] -> T_CDU_in
+self.adam.buffer[5] -> T_air_in
+self.adam.buffer[6] -> T_air_out
+self.adam.buffer[8] -> fan_duty
+self.adam.buffer[9] -> pump_duty
+
+而在模型訓練與預測時使用的特徵順序是:
+0: T_GPU
+1: T_CDU_out
+2: T_CDU_in
+3: T_air_in
+4: T_air_out
+5: fan_duty
+6: pump_duty
+
+最終結論: 特徵排序是一致的，不會影響映射結果。您可以放心使用當前的模型和scaler。

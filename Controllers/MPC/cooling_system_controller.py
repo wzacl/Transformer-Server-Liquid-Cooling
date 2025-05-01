@@ -18,7 +18,7 @@ import ADAMScontroller  # 數據採集控制器
 import pwmcontroller as ctrl  # PWM控制器
 import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器
 from simple_pid import PID  # PID控制器庫
-import Optimal_algorithm.SA_Optimizer as SA_Optimizer  # 模擬退火優化器
+import Optimal_algorithm.Revised_SA_Optimizer as Revised_SA_Optimizer  # 模擬退火優化器
 import GB_PID_pump as Pump_pid  # 泵控制PID
 
 class HardwareConfig:
@@ -656,7 +656,7 @@ class CoolingSystemController:
         self.original_print = print
         
         # 初始化優化器和控制器
-        self.sa_optimizer = SA_Optimizer.SA_Optimizer(
+        self.sa_optimizer = Revised_SA_Optimizer.Revised_SA_Optimizer(
             adam=self.hardware.adam,
             window_size=35,
             P_max=control_params.p_max,
@@ -826,14 +826,14 @@ class CoolingSystemController:
             self.display.display_fan_optimization()
             
             # 替換SA_Optimizer中的print函數，減少輸出
-            SA_Optimizer.print = lambda *args, **kwargs: self.filter_sa_logs(*args, **kwargs)
+            Revised_SA_Optimizer.print = lambda *args, **kwargs: self.filter_sa_logs(*args, **kwargs)
             
             start_time = time.time()
             optimal_fan_speed, optimal_cost = self.sa_optimizer.optimize()
             optimization_time = time.time() - start_time
             
             # 恢復原始print函數
-            SA_Optimizer.print = print
+            Revised_SA_Optimizer.print = print
             
             if optimal_fan_speed is not None:
                 # 先顯示優化結果，再改變設定，使結果更容易被看到
