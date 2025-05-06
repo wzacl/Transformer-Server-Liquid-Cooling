@@ -41,9 +41,9 @@ class SA_Optimizer:
         self.previous_fan_speed = None  # 前一次風扇轉速
         
         # 模擬退火參數
-        self.T_max = 15.0  # 初始溫度
-        self.T_min = 5.0  # 最終溫度
-        self.alpha = 0.7  # 冷卻率，每次下降
+        self.T_max = 8.0  # 初始溫度
+        self.T_min = 2.0  # 最終溫度
+        self.alpha = 0.6  # 冷卻率，每次下降
         self.max_iterations = 5  # 每個溫度的迭代次數
         self.base_step = 5  # 基本步長
         
@@ -106,45 +106,12 @@ class SA_Optimizer:
         """
         if predicted_temps is None:
             return float('inf')  # 若預測失敗，返回無窮大成本
-        '''
-        #斜率變化計算項
-        if predicted_temps is not None and len(predicted_temps) > 0:
-            # 計算預測溫度的斜率
-            predicted_slope = 0
-            if len(predicted_temps) > 1:
-                predicted_slope = (predicted_temps[0] - current_temp)
-            
-            # 根據error判斷期望的斜率方向
-            # 如果error > 0，表示當前溫度高於目標溫度，鼓勵負斜率（降溫）
-            # 如果error < 0，表示當前溫度低於目標溫度，鼓勵正斜率（升溫）
-            desired_direction = -1 if error > 0 else 1
-            actual_direction = -1 if predicted_slope < 0 else 1
-            
-            # 如果斜率方向與期望方向不一致，增加懲罰
-            if desired_direction != actual_direction:
-                slope_penalty = 10
-            else:
-                slope_penalty = 0
-            
-            # 如果溫度接近目標值，減少斜率懲罰以避免過度調整
-            if abs(error) < 0.5:
-                slope_penalty *= 0.5
-        '''
-        
+
         # 速度平滑項
         speed_smooth = 0
         if self.previous_fan_speed is not None:
             speed_change = abs(fan_speed - self.previous_fan_speed)
             speed_smooth = speed_change**2 
-            """
-            # 當溫度與目標溫度接近時，增加速度平滑項的權重，使轉速更快收斂
-            if abs(current_temp - self.target_temp) < 1.0:
-                # 溫度越接近目標，速度平滑權重越高
-                temp_diff_ratio = max(0.1, 1 - abs(current_temp - self.target_temp))
-                smooth_weight = 3.0 * temp_diff_ratio  # 當溫度非常接近時，權重最高可達3.0
-                speed_smooth *= smooth_weight
-            """
-        
       
         temp_error = 0
         # 只計算預測序列中所有溫度差
@@ -173,7 +140,6 @@ class SA_Optimizer:
             max_steps = int(abs(self.T_current) / self.base_step)  # 根據當前溫度計算最大步數
             if max_steps == 0:
                 max_steps = 1
-                
             # 特殊處理邊界值情況
             if current_speed == 40:  # 當轉速為最小值時，只能向上生成
                 steps = random.randint(0, max_steps)  # 隨機正步長
@@ -187,7 +153,7 @@ class SA_Optimizer:
             new_speed = current_speed + delta  # 新轉速
         else:
             # 首次運行時的範圍更大
-            new_speed = random.uniform(40, 100)  # 隨機生成40-100之間的轉速
+            new_speed = random.uniform(60, 100)  # 隨機生成40-100之間的轉速
             # 近似到最接近的self.base_step倍數
             new_speed = round(new_speed / self.base_step) * self.base_step  # 四捨五入到基本步長的倍數
             
@@ -291,6 +257,22 @@ class SA_Optimizer:
             print(f"📊 最終解: 風扇轉速 = {best_speed}%, 預測溫度變化方向: {final_direction}, 斜率: {final_predicted_slope:.4f}")
             # 顯示每個時間步的最終預測溫度
             print(f"   最終預測溫度序列: {[f'{temp:.2f}' for temp in final_predicted_temps]}")
+        
+        # 應用最大轉速變化限制
+        current_system_speed = self.adam.buffer[8] if self.adam.buffer[8] is not None else 60
+        max_change = self.max_speed_change  # 使用已定義的最大變化率
+        
+        # 計算允許的轉速範圍
+        min_allowed_speed = max(40, current_system_speed - max_change)
+        max_allowed_speed = min(100, current_system_speed + max_change)
+        
+        # 限制最佳風扇轉速變化
+        if best_speed < min_allowed_speed:
+            best_speed = int(min_allowed_speed)
+            print(f"⚠️ 轉速變化過大，限制為下限: {best_speed}%")
+        elif best_speed > max_allowed_speed:
+            best_speed = int(max_allowed_speed)
+            print(f"⚠️ 轉速變化過大，限制為上限: {best_speed}%")
         
         print(f"✅ 最佳化完成: 風扇轉速 = {best_speed}%, 最終成本 = {best_cost:.2f}")
         return best_speed, best_cost
