@@ -8,19 +8,124 @@ sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controll
 import matplotlib.pyplot as plt
 import numpy as np
 import time
-import Transformer_quantized
+from Controllers.MPC.model import Model
 import torch
-import Sequence_Window_Processor as swp
+from Controllers.MPC.Model_constructor import Sequence_Window_Processor as swp
 import math
 import os
 import csv
 import random
 
+import pandas as pd
+import numpy as np
+import torch
+import argparse
+import joblib
+import os
+
+# 設置設備
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"使用設備: {device}")
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='使用iTransformer模型進行預測')
+    
+    # 模型和數據參數
+    parser.add_argument('--model_path', type=str, required=True, 
+                        help='訓練好的模型路徑')
+    parser.add_argument('--scaler_path', type=str, required=True, 
+                        help='歸一化器路徑')
+    parser.add_argument('--input_file', type=str, required=True, 
+                        help='輸入數據文件')
+    parser.add_argument('--output_file', type=str, default='predictions.csv', 
+                        help='預測結果輸出文件')
+    
+    # 特徵參數
+    parser.add_argument('--features', type=str, 
+                        default='T_GPU,T_heater,T_CDU_in,T_CDU_out,T_air_in,T_air_out,fan_duty,pump_duty', 
+                        help='輸入特徵，以逗號分隔')
+    parser.add_argument('--target', type=str, default='T_CDU_out', help='預測目標變量')
+    
+    # 預測參數
+    parser.add_argument('--seq_length', type=int, default=20, help='輸入序列長度')
+    parser.add_argument('--pred_length', type=int, default=6, help='預測序列長度')
+    
+    return parser.parse_args()
+
+class ModelConfig:
+    """
+    模型配置類，統一管理模型參數
+    """
+    def __init__(self, input_dim=7, d_model=16, n_heads=8, e_layers=1, d_ff=16, 
+                 dropout=0.01, seq_len=40, pred_len=8, embed='timeF', freq='h',
+                 class_strategy='cls', activation='gelu', output_attention=False, use_norm=True):
+        """
+        初始化模型配置
+        
+        Args:
+            input_dim (int): 輸入特徵維度
+            d_model (int): 模型隱藏層維度
+            n_heads (int): 注意力頭數
+            e_layers (int): 編碼器層數
+            d_ff (int): 前饋網絡維度
+            dropout (float): Dropout比率
+            seq_len (int): 輸入序列長度
+            pred_len (int): 預測序列長度
+            embed (str): 嵌入類型
+            freq (str): 時間頻率
+            class_strategy (str): 分類策略
+            activation (str): 激活函數
+            output_attention (bool): 是否輸出注意力權重
+            use_norm (bool): 是否使用層歸一化
+        """
+        self.input_dim = input_dim
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.e_layers = e_layers
+        self.d_ff = d_ff
+        self.dropout = dropout
+        self.seq_len = seq_len
+        self.pred_len = pred_len
+        self.embed = embed
+        self.freq = freq
+        self.class_strategy = class_strategy
+        self.activation = activation
+        self.output_attention = output_attention
+        self.use_norm = use_norm
+
+def load_model(model_path, config):
+    """
+    加載訓練好的模型
+    
+    Args:
+        model_path: 模型路徑
+        config: 模型配置
+        
+    Returns:
+        加載好的模型
+    """
+    model = Model(
+        input_dim=config.input_dim,
+        d_model=config.d_model,
+        n_heads=config.n_heads,
+        e_layers=config.e_layers,
+        d_ff=config.d_ff,
+        dropout=config.dropout
+    ).to(device)
+    
+    # 加載模型權重
+    checkpoint = torch.load(model_path, map_location=device)
+    model.load_state_dict(checkpoint)
+    
+    # 設置為評估模式
+    model.eval()
+    
+    return model
 
 class SA_Optimizer:
     def __init__(self, adam, window_size=35, P_max=100, target_temp=25,
-                 model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/2KWCDU_Transformer_model.pth',
-                 scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/no_Tenv_seq35_steps8_batch512_hidden16_layers1_heads8_dropout0.01_epoch400/1.5_1KWscalers.jlib',
+                 model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth',
+                 scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib',
                  figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data'):
         """初始化模擬退火(SA)風扇轉速最佳化器。
         
@@ -43,7 +148,7 @@ class SA_Optimizer:
         self.T_max = 8.0  # 初始溫度
         self.T_min = 2.0  # 最終溫度
         self.alpha = 0.6  # 冷卻率，每次下降
-        self.max_iterations = 5  # 每個溫度的迭代次數
+        self.max_iterations = 3  # 每個溫度的迭代次數
         self.base_step = 5  # 基本步長
         
         # 目標函數參數
@@ -62,11 +167,40 @@ class SA_Optimizer:
         self.figure_path = figure_path  # 圖表保存路徑
         self.adam = adam  # ADAM控制器
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')  # 計算設備
-        self.model = Transformer_quantized.TransformerModel(input_dim=7, hidden_dim=16, output_dim=1, num_encoder_layers=1, num_decoder_layers=1, num_heads=8, dropout=0.01)  # Transformer模型
-        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))  # 載入模型權重
+        
+        # 使用統一的模型配置
+        self.model_config = ModelConfig(
+            input_dim=7,
+            d_model=16,
+            n_heads=8,
+            e_layers=1,
+            d_ff=16,
+            dropout=0.01,
+            seq_len=40,
+            pred_len=8
+        )
+        
+        # 創建模型實例
+        self.model = Model(
+            input_dim=self.model_config.input_dim,
+            d_model=self.model_config.d_model,
+            n_heads=self.model_config.n_heads,
+            e_layers=self.model_config.e_layers,
+            d_ff=self.model_config.d_ff,
+            dropout=self.model_config.dropout
+        ).to(self.device)
+        
+        # 載入模型權重
+        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
         self.model.eval()  # 設置模型為評估模式
-        self.data_processor = swp.SequenceWindowProcessor(window_size=window_size, 
-            adams_controller=self.adam, scaler_path=self.scaler_path, device=self.device)  # 數據處理器
+        
+        # 數據處理器
+        self.data_processor = swp.SequenceWindowProcessor(
+            window_size=window_size, 
+            adams_controller=self.adam, 
+            scaler_path=self.scaler_path, 
+            device=self.device
+        )
 
     def predict_temp(self, fan_speed, data):
         """使用Transformer模型預測溫度。
@@ -84,7 +218,7 @@ class SA_Optimizer:
 
         if input_tensor is not None:
             with torch.no_grad():
-                scaled_predictions = self.model(input_tensor, num_steps=8)[0].cpu().numpy()  # 獲取縮放後的預測結果
+                scaled_predictions = self.model(input_tensor, num_steps=self.model_config.pred_len)[0].cpu().numpy()  # 獲取縮放後的預測結果
                 predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)  # 反轉縮放
                 # 將預測溫度四捨五入到小數點後第一位
                 rounded_temps = [round(temp, 1) for temp in predicted_temps]
@@ -116,13 +250,13 @@ class SA_Optimizer:
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*9)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*10)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
 
         # 總成本
-        total_cost =self.w_temp * temp_error + self.w_speed * speed_smooth  # 總成本等於溫度誤差
+        total_cost =self.w_temp * temp_error   # 總成本等於溫度誤差
         
         return total_cost
 
@@ -173,7 +307,6 @@ class SA_Optimizer:
 
         else:
             current_temp = fixed_window_data[-1][1]  # 當前溫度
-            past_temp = fixed_window_data[-10][1]  # 過去溫度
             error = current_temp - past_temp  # 溫度變化誤差
             print("✅ 數據蒐集完成，開始進行模擬退火最佳化")
         
@@ -276,11 +409,55 @@ class SA_Optimizer:
         print(f"✅ 最佳化完成: 風扇轉速 = {best_speed}%, 最終成本 = {best_cost:.2f}")
         return best_speed, best_cost
 
+    def plot_cost(self):
+        """繪製成本歷史圖表"""
+        if len(self.cost_history) > 0:
+            plt.figure(figsize=(10, 6))
+            plt.plot(range(len(self.cost_history)), self.cost_history, marker='o')
+            plt.title('模擬退火最佳化成本歷史')
+            plt.xlabel('迭代次數')
+            plt.ylabel('成本值')
+            plt.grid(True)
+            
+            # 確保圖表保存目錄存在
+            os.makedirs(self.figure_path, exist_ok=True)
+            
+            # 生成時間戳記
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            
+            # 保存圖表
+            plt.savefig(f"{self.figure_path}/sa_cost_history_{timestamp}.png")
+            plt.close()
+            print(f"✅ 成本歷史圖表已保存至: {self.figure_path}/sa_cost_history_{timestamp}.png")
 
 
 # 測試代碼
 if __name__ == "__main__":
-    optimizer = SA_Optimizer(adam=None, target_temp=25, P_max=100)
+    # 創建模型配置
+    model_config = ModelConfig(
+        input_dim=7,
+        d_model=16,
+        n_heads=8,
+        e_layers=1,
+        d_ff=16,
+        dropout=0.01,
+        seq_len=40,
+        pred_len=8
+    )
+    
+    # 創建優化器實例
+    optimizer = SA_Optimizer(
+        adam=None,
+        target_temp=25,
+        P_max=100,
+        window_size=35
+    )
+    
+    # 執行優化
     optimal_fan_speed, optimal_cost = optimizer.optimize()
+    
+    # 繪製成本歷史
     optimizer.plot_cost()
-    print(f"\nOptimal Fan Speed: {optimal_fan_speed}% with Cost: {optimal_cost:.2f}")
+    
+    # 顯示最佳結果
+    print(f"\n最佳風扇轉速: {optimal_fan_speed}%, 最佳成本: {optimal_cost:.2f}")
