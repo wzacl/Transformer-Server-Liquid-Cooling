@@ -37,20 +37,20 @@ class SA_Optimizer:
         # 控制參數
         self.target_temp = target_temp  # 目標溫度
         self.P_max = P_max  # 最大功率值
-        self.max_speed_change = 15  # 最大轉速變化限制
+        self.max_speed_change = 10  # 最大轉速變化限制
         self.previous_fan_speed = None  # 前一次風扇轉速
         
         # 模擬退火參數
-        self.T_max = 8.0  # 初始溫度
-        self.T_min = 2.0  # 最終溫度
-        self.alpha = 0.6  # 冷卻率，每次下降
+        self.T_max = 6.0  # 初始溫度
+        self.T_min = 1.0  # 最終溫度
+        self.alpha = 0.5  # 冷卻率，每次下降
         self.max_iterations = 5  # 每個溫度的迭代次數
         self.base_step = 5  # 基本步長
         
         # 目標函數參數
         self.w_temp = 1  # 溫度控制項權重
         self.w_speed = 0  # 速度平滑項權重
-        self.error_band = 0.2  # 溫度控制項誤差帶
+        self.error_band = 0.1  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -117,7 +117,7 @@ class SA_Optimizer:
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*9)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*5)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0

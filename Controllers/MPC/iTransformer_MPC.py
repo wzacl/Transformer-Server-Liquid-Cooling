@@ -4,22 +4,35 @@
 此模組實現了基於模型預測控制(MPC)的冷卻系統控制器，用於管理GPU冷卻系統的風扇和泵的速度。
 系統使用模擬退火算法優化風扇速度，並使用PID控制器管理泵速。
 """
-import time
 import sys
 import os
-sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
-sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor')
-sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/GB_PID')
+
+# -- 新增的 sys.path 修改開始 --
+# 獲取目前檔案 (iTransformer_MPC.py) 的絕對路徑
+_current_file_path = os.path.abspath(__file__)
+# 導航到專案根目錄 (2KWCDU_修改版本)
+# .../code_manage/Controllers/MPC/iTransformer_MPC.py -> .../2KWCDU_修改版本/
+_project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_current_file_path))))
+
+# 如果專案根目錄不在 sys.path 中，則將其加入到最前面
+if _project_root_dir not in sys.path:
+    sys.path.insert(0, _project_root_dir)
+# -- 新增的 sys.path 修改結束 --
+
+import time
+# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit') # 建議後續移除
+# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor') # 建議後續移除
+# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/GB_PID') # 建議後續移除
 from collections import deque
 import math
 import numpy as np
 from typing import Optional, Tuple, List, Dict, Any
-import ADAMScontroller  # 數據採集控制器
-import pwmcontroller as ctrl  # PWM控制器
-import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器
-from simple_pid import PID  # PID控制器庫
-import Optimal_algorithm.SA_iTransformer as SA_iTransformer  # 模擬退火優化器
-import GB_PID_pump as Pump_pid  # 泵控制PID
+from code_manage.Control_Unit import ADAMScontroller  # 數據採集控制器 - 修改為絕對導入
+from code_manage.Control_Unit import pwmcontroller as ctrl  # PWM控制器 - 修改為絕對導入
+from code_manage.Control_Unit import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器 - 修改為絕對導入
+from simple_pid import PID  # PID控制器庫 (假設為已安裝的第三方庫)
+from code_manage.Controllers.MPC.Optimal_algorithm import SA_iTransformer as SA_iTransformer  # 模擬退火優化器 - 修改為絕對導入
+from code_manage.Controllers.GB_PID import GB_PID_pump as Pump_pid  # 泵控制PID - 修改為絕對導入
 
 class HardwareConfig:
     """硬體配置類
@@ -206,7 +219,7 @@ class ControlParameters:
                  p_max: float = 100,
                  gpu_target: float = 71,
                  target_temp: float = 30,
-                 control_frequency: int = 4,
+                 control_frequency: int = 6,
                  initial_fan_duty: float = 60,
                  initial_pump_duty: float = 60):
         self.p_max = p_max
@@ -658,7 +671,7 @@ class CoolingSystemController:
         # 初始化優化器和控制器
         self.sa_optimizer = SA_iTransformer.SA_Optimizer(
             adam=self.hardware.adam,
-            window_size=35,
+            window_size=25,
             P_max=control_params.p_max,
             target_temp=control_params.target_temp,
             model_path=model_config.model_path,
@@ -890,6 +903,14 @@ class CoolingSystemController:
         key_phrases = [
             "數據蒐集完成",
             "初始解",
+            "嘗試解",  # 迭代過程
+            "預測溫度序列",
+            "預測溫度變化方向",
+            "斜率",
+            "接受",    # 接受新解
+            "拒絕",    # 拒絕新解
+            "當前溫度", # 冷卻過程
+            "發現更好的解", # 更新最佳解
             "最終解",
             "最佳化完成",
         ]
@@ -905,22 +926,22 @@ if __name__ == "__main__":
         model_config_parameters = SA_iTransformer.ModelConfig(
             input_dim=7,
             d_model=16,
-            n_heads=8,
+            n_heads=4,
             e_layers=1,
-            d_ff=16,
+            d_ff=32,
             dropout=0.01,
-            seq_len=40,
-            pred_len=8,
+            seq_len=25,
+            pred_len=10,
         )
         model_config = ModelConfig(
-            scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
-            model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
-            exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
-            exp_var="Fan_MPC_data_var_target_test_9",
+            scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_seq25_pred10_dmodel16_dff32_nheads4_elayers1_dropout0.01_lr0.0001/scalers.jlib",
+            model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_seq25_pred10_dmodel16_dff32_nheads4_elayers1_dropout0.01_lr0.0001/best_model.pth",
+            exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/iTransformer/iTransformer_seq25_pred10_dmodel16_dff32_nheads4_elayers1_dropout0.01_lr0.0001",
+            exp_var="Fan_MPC_data_var_target_test_1",
         )
         control_params = ControlParameters()
 
-        
+       
         # 創建並運行控制器
         controller = CoolingSystemController(
             hardware_config,
@@ -932,9 +953,9 @@ if __name__ == "__main__":
         controller.start_experiment_mode(
             period=300,  # 5分鐘變化一次
             gpu_targets=[70,70,70,70,70,70],
-            system_targets=[28,24,28,30,24,28]
+            system_targets=[28,30,32,30,32,28]
         )
-        
+         
         controller.run() 
 
  

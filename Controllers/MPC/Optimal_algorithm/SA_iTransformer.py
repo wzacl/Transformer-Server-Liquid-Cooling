@@ -5,12 +5,13 @@ import time
 import sys
 sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit')
 sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor')
+sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC')
 import matplotlib.pyplot as plt
 import numpy as np
 import time
-from Controllers.MPC.model import Model
+from code_manage.Controllers.MPC.model import Model
 import torch
-from Controllers.MPC.Model_constructor import Sequence_Window_Processor as swp
+from code_manage.Controllers.MPC.Model_constructor import Sequence_Window_Processor as swp
 import math
 import os
 import csv
@@ -141,15 +142,15 @@ class SA_Optimizer:
         # 控制參數
         self.target_temp = target_temp  # 目標溫度
         self.P_max = P_max  # 最大功率值
-        self.max_speed_change = 15  # 最大轉速變化限制
+        self.max_speed_change = 10  # 最大轉速變化限制
         self.previous_fan_speed = None  # 前一次風扇轉速
         
         # 模擬退火參數
-        self.T_max = 8.0  # 初始溫度
-        self.T_min = 2.0  # 最終溫度
-        self.alpha = 0.6  # 冷卻率，每次下降
-        self.max_iterations = 3  # 每個溫度的迭代次數
-        self.base_step = 5  # 基本步長
+        self.T_max = 6.0  # 初始溫度，增加以允許更大範圍探索
+        self.T_min = 0.5  # 最終溫度，降低以確保更精確的收斂
+        self.alpha = 0.5  # 冷卻率，調整為較慢的降溫
+        self.max_iterations = 8  # 每個溫度的迭代次數，增加以提高每個溫度的探索
+        self.base_step = 5  # 基本步長，保持為5%
         
         # 目標函數參數
         self.w_temp = 1  # 溫度控制項權重
@@ -172,26 +173,27 @@ class SA_Optimizer:
         self.model_config = ModelConfig(
             input_dim=7,
             d_model=16,
-            n_heads=8,
+            n_heads=4,
             e_layers=1,
-            d_ff=16,
+            d_ff=32,
             dropout=0.01,
-            seq_len=40,
-            pred_len=8
+            seq_len=25,
+            pred_len=10
         )
         
-        # 創建模型實例
+        # 創建模型實例 - 修正初始化方式
         self.model = Model(
-            input_dim=self.model_config.input_dim,
-            d_model=self.model_config.d_model,
-            n_heads=self.model_config.n_heads,
-            e_layers=self.model_config.e_layers,
-            d_ff=self.model_config.d_ff,
-            dropout=self.model_config.dropout
+            self.model_config
         ).to(self.device)
         
-        # 載入模型權重
-        self.model.load_state_dict(torch.load(self.model_path, map_location=self.device))
+        # 載入模型權重 - 修正加載方式
+        checkpoint = torch.load(self.model_path, map_location=self.device)
+        if 'model_state_dict' in checkpoint:
+            # 檢查點包含模型狀態字典
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            # 直接嘗試加載
+            self.model.load_state_dict(checkpoint)
         self.model.eval()  # 設置模型為評估模式
         
         # 數據處理器
@@ -213,16 +215,34 @@ class SA_Optimizer:
             list or None: 預測的溫度序列，若預測失敗則返回None。
         """
         data_copy = data.copy()  # 複製數據以避免修改原始數據
-        data_copy[-1][5] = fan_speed  # 設置風扇轉速值
+        
+        # 輸出原始數據的最後一行以確認特徵索引
+        last_row = data_copy[-1].copy()
+        print(f"🔍 原始數據: {[f'{val:.2f}' for val in last_row]}")
+        print(f"📊 特徵順序: T_GPU, T_CDU_in, T_CDU_out, T_air_in, T_air_out, fan_duty, pump_duty")
+        
+ 
+        # 設置最後6秒的風扇轉速值
+        data_copy[-6:, 5] = fan_speed  # 設置最後6個時間步的風扇轉速值
+        
         input_tensor = self.data_processor.transform_input_data(data_copy)  # 轉換輸入數據為張量
 
         if input_tensor is not None:
             with torch.no_grad():
-                scaled_predictions = self.model(input_tensor, num_steps=self.model_config.pred_len)[0].cpu().numpy()  # 獲取縮放後的預測結果
+                # 檢查模型輸出
+                model_output = self.model(input_tensor)
+                
+                # 輸出模型輸出的形狀以便調試
+                print(f"📐 模型輸出形狀: {[output.shape for output in model_output if isinstance(output, torch.Tensor)]}")
+                
+                # 取得第一個輸出張量並轉換為NumPy數組
+                scaled_predictions = model_output[0].cpu().numpy()  # 獲取縮放後的預測結果
+                print(f"📊 原始縮放預測形狀: {scaled_predictions.shape}")
+                
+                # 使用修改後的反轉縮放方法
                 predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)  # 反轉縮放
-                # 將預測溫度四捨五入到小數點後第一位
-                rounded_temps = [round(temp, 1) for temp in predicted_temps]
-                return rounded_temps
+                
+                return predicted_temps
         return None
 
     def objective_function(self, fan_speed, predicted_temps, error, current_temp):
@@ -250,7 +270,7 @@ class SA_Optimizer:
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*10)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*3)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
@@ -261,37 +281,48 @@ class SA_Optimizer:
         return total_cost
 
     def generate_neighbor(self, current_speed):
-        """為當前風扇轉速生成鄰近解。
+        """生成鄰近解。確保生成的風扇轉速始終是5%的倍數，以匹配控制系統的實際步長。
         
         Args:
-            current_speed (float): 當前風扇轉速。
+            current_speed (float): 當前風扇轉速
             
         Returns:
-            int: 新的風扇轉速值。
+            int: 新生成的風扇轉速值，保證是5%的倍數
         """
+        # 初始化步長為5%，對應實際風扇調節的最小單位
+        step_size = 5
+        
         if self.previous_fan_speed is not None:
-            max_steps = int(abs(self.T_current) / self.base_step)  # 根據當前溫度計算最大步數
-            if max_steps == 0:
-                max_steps = 1
-            # 特殊處理邊界值情況
-            if current_speed == 40:  # 當轉速為最小值時，只能向上生成
-                steps = random.randint(0, max_steps)  # 隨機正步長
-            elif current_speed == 100:  # 當轉速為最大值時，只能向下生成
-                steps = random.randint(-max_steps, 0)  # 隨機負步長
-            else:  # 非邊界值時，正常生成
-                steps = random.randint(-max_steps, max_steps)  # 隨機步長
-                
-            # 進行轉速變化
-            delta = steps * self.base_step  # 轉速變化量
-            new_speed = current_speed + delta  # 新轉速
-        else:
-            # 首次運行時的範圍更大
-            new_speed = random.uniform(60, 100)  # 隨機生成40-100之間的轉速
-            # 近似到最接近的self.base_step倍數
-            new_speed = round(new_speed / self.base_step) * self.base_step  # 四捨五入到基本步長的倍數
+            # 根據當前溫度決定搜索寬度
+            # 但始終保持步長為5的倍數
+            max_steps = max(1, int(self.T_current))  # 至少允許1個步長的變化
             
-        # 確保在合理範圍內 (以防萬一)
-        new_speed = max(40, min(100, new_speed))  # 限制轉速在40-100之間
+            # 隨機選擇步數（以5%為單位）
+            step_count = random.randint(-max_steps, max_steps)
+            
+            # 計算轉速變化，確保是5的倍數
+            delta = step_count * step_size
+            
+            # 計算新的轉速值
+            new_speed = current_speed + delta
+        else:
+            # 首次運行，隨機生成一個5%的倍數作為初始解
+            # 從40%到100%之間，以5%為步長生成隨機值
+            possible_speeds = list(range(40, 105, 5))  # [40, 45, 50, ..., 100]
+            new_speed = random.choice(possible_speeds)
+        
+        # 確保轉速值在有效範圍內（40%-100%）
+        # 並且結果為5的倍數（向下取整到最近的5的倍數）
+        new_speed = max(40, min(100, new_speed))
+        new_speed = int(new_speed // 5 * 5)  # 確保是5的倍數
+        
+        # 確保新的值和當前值有區別
+        if new_speed == current_speed:
+            # 如果沒有變化，強制向上或向下移動一個步長
+            direction = 1 if random.random() > 0.5 else -1
+            new_speed = current_speed + (direction * step_size)
+            # 再次確保在有效範圍內
+            new_speed = max(40, min(100, new_speed))
         
         return int(new_speed)
 
@@ -307,7 +338,8 @@ class SA_Optimizer:
 
         else:
             current_temp = fixed_window_data[-1][1]  # 當前溫度
-            error = current_temp - past_temp  # 溫度變化誤差
+            # 移除對未定義變量的引用，直接將誤差設為0
+            error = 0  # 初始化誤差為0
             print("✅ 數據蒐集完成，開始進行模擬退火最佳化")
         
         # 初始解
@@ -329,7 +361,7 @@ class SA_Optimizer:
         if predicted_temps is not None and len(predicted_temps) > 0:
             predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)  # 預測溫度斜率
             direction = "降溫" if predicted_slope < 0 else "升溫"  # 溫度變化方向
-            print(f"🌡️ 初始解: 風扇轉速 = {current_speed}%, 預測溫度變化方向: {direction}, 斜率: {predicted_slope:.4f}")
+            print(f"🌡️ 初始解: 風扇轉速 = {current_speed}% (5%的倍數), 預測溫度變化方向: {direction}, 斜率: {predicted_slope:.4f}")
             # 顯示每個時間步的預測溫度
             print(f"   預測溫度序列: {[f'{temp:.2f}' for temp in predicted_temps]}")
         
@@ -351,7 +383,7 @@ class SA_Optimizer:
                 if predicted_temps is not None and len(predicted_temps) > 0:
                     predicted_slope = (predicted_temps[-1] - current_temp) / len(predicted_temps)  # 預測溫度斜率
                     direction = "降溫" if predicted_slope < 0 else "升溫"  # 溫度變化方向
-                    print(f"🔍 嘗試解: 風扇轉速 = {new_speed}%, 預測溫度變化方向: {direction}, 斜率: {predicted_slope:.4f}, 成本: {new_cost:.2f}")
+                    print(f"🔍 嘗試解: 風扇轉速 = {new_speed}% (步長: 5%), 預測溫度變化方向: {direction}, 斜率: {predicted_slope:.4f}, 成本: {new_cost:.2f}")
                     # 顯示每個時間步的預測溫度
                     print(f"   預測溫度序列: {[f'{temp:.2f}' for temp in predicted_temps]}")
                 
@@ -441,7 +473,7 @@ if __name__ == "__main__":
         e_layers=1,
         d_ff=16,
         dropout=0.01,
-        seq_len=40,
+        seq_len=25,
         pred_len=8
     )
     

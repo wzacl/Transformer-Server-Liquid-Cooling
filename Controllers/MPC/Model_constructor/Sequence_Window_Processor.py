@@ -74,10 +74,12 @@ class SequenceWindowProcessor:
         並將其添加到滑動窗口緩衝區中，同時更新數據計數器。
         """
         with self.buffer_lock:
+            # 特徵順序為: T_GPU, T_CDU_in, T_CDU_out, T_air_in, T_air_out, fan_duty, pump_duty
+            # 與訓練模型時使用的特徵順序一致
             raw_data = np.array([
                 self.adam.buffer[0],  # T_GPU
-                self.adam.buffer[3],  # T_CDU_out
                 self.adam.buffer[2],  # T_CDU_in
+                self.adam.buffer[3],  # T_CDU_out
                 self.adam.buffer[5],  # T_air_in
                 self.adam.buffer[6],  # T_air_out
                 self.adam.buffer[8],  # fan_duty
@@ -116,34 +118,51 @@ class SequenceWindowProcessor:
 
     def inverse_transform_predictions(self, scaled_predictions, smooth=True):
         """
-        反標準化預測數據並可選擇進行平滑處理
+        反標準化預測數據
         
-        將模型輸出的標準化預測結果轉換回原始尺度，並可選擇進行平滑處理
-        以減少預測結果中的跳變。
+        將模型輸出的標準化預測結果轉換回原始尺度。
         
         Args:
             scaled_predictions (numpy.ndarray): 標準化後的預測數據
-            smooth (bool): 是否進行平滑處理，預設為True
+            smooth (bool): 是否對預測結果進行平滑處理
             
         Returns:
-            numpy.ndarray: 反標準化（並可能平滑處理）後的預測數據
+            numpy.ndarray: 反標準化後的預測數據
             
         Raises:
             AttributeError: 如果output_scaler缺少inverse_transform方法
         """
+        #print(f"🔢 標準化預測結果形狀: {scaled_predictions.shape}")
+        
         if hasattr(self.output_scaler, "inverse_transform"):
-            inverse_data = self.output_scaler.inverse_transform(scaled_predictions)[:, 0]
-            
-            # 如果需要平滑處理，則調用平滑函數
-            if smooth:
-                final_data = self._smooth_predictions(inverse_data)
+            # iTransformer模型輸出的形狀處理
+            if len(scaled_predictions.shape) == 2:  # 如果是2D矩陣 [seq_len, features]
+                # 只取CDU出水溫度預測（第3列，對應索引2）
+                
+                cdu_out_predictions = scaled_predictions[:, 2] if scaled_predictions.shape[1] >= 3 else scaled_predictions[:, 0]
+                
+                # 確保只取前pred_len個時間步(8個)
+                cdu_out_predictions = cdu_out_predictions[:10]
+                
+                # 擴展為正確的形狀以進行反標準化
+                scaled_reshape = cdu_out_predictions.reshape(-1, 1)
             else:
-                final_data = inverse_data
-            return final_data
+                # 如果是其他形狀，嘗試合理處理
+                # 先打平然後取前8個值
+                cdu_out_predictions = scaled_predictions.flatten()[:10]
+                scaled_reshape = cdu_out_predictions.reshape(-1, 1)
+            
+            #print(f"🔄 處理後形狀: {scaled_reshape.shape}")
+            
+            # 反標準化
+            inverse_data = self.output_scaler.inverse_transform(scaled_reshape)[:, 0]
+            #print(f"📊 反標準化結果(只顯示CDU出水溫度的預測): {[f'{temp:.2f}' for temp in inverse_data]}")
+            
+            return inverse_data
         else:
             raise AttributeError("output_scaler 缺少 inverse_transform 方法，請檢查 scaler 是否正確載入。")
 
-    def transform_input_data(self,data):
+    def transform_input_data(self, data):
         """
         標準化輸入數據
         
@@ -159,72 +178,16 @@ class SequenceWindowProcessor:
             AttributeError: 如果input_scaler缺少transform方法
         """
         if hasattr(self.input_scaler, "transform"):
-            return torch.tensor(self.input_scaler.transform(data), dtype=torch.float32).unsqueeze(0).to(self.device)
+            # 查看最後一行資料的轉速值
+            #print(f"⚙️ 輸入數據最後一行: {[f'{val:.2f}' for val in data[-1]]}")
+            #print(f"📊 輸入特徵順序: T_GPU, T_CDU_in, T_CDU_out, T_air_in, T_air_out, fan_duty, pump_duty")
+            
+            # 標準化數據
+            scaled_data = self.input_scaler.transform(data)
+            #print(f"🔢 標準化後最後一行: {[f'{val:.4f}' for val in scaled_data[-1]]}")
+            
+            # 轉換為張量
+            return torch.tensor(scaled_data, dtype=torch.float32).unsqueeze(0).to(self.device)
         else:
             raise AttributeError("input_scaler 缺少 transform 方法，請檢查 scaler 是否正確載入。")
     
-    def _smooth_predictions(self, predictions):
-        """
-        平滑處理預測溫度序列，特別處理第一個點的跳變問題
-        
-        通過限制預測序列中第一個點與當前實際溫度的差值，並使用線性插值
-        平滑處理前幾個預測點，減少預測結果中的不合理跳變。
-        
-        Args:
-            predictions (numpy.ndarray): 原始預測溫度序列
-            
-        Returns:
-            numpy.ndarray: 平滑處理後的溫度序列
-        """
-            
-        # 獲取當前實際溫度
-        current_temp = self.adam.buffer[3]  # T_CDU_out 的位置索引為 3
-        
-        # 計算預測的第一個點與實際溫度的差值
-        first_point_diff = predictions[0] - current_temp
-        
-        # 判斷溫度變化趨勢
-        if abs(first_point_diff) < 0.05:
-            # 溫度變化很小，視為穩定
-            self.temp_trend = 0
-        elif first_point_diff > 0:
-            # 溫度上升趨勢
-            self.temp_trend = 1
-        else:
-            # 溫度下降趨勢
-            self.temp_trend = -1
-            
-        # 根據趨勢設定閾值
-        if self.temp_trend == 1:
-            threshold = 0.1  # 上升趨勢閾值
-        elif self.temp_trend == -1:
-            threshold = 0.1  # 下降趨勢閾值
-        else:
-            threshold = 0.05  # 穩定趨勢閾值
-            
-        # 處理第一個點的跳變
-        smoothed_predictions = predictions.copy()
-        if abs(first_point_diff) > threshold:
-            print(f"⚠️ 檢測到溫度預測跳變: {first_point_diff:.3f}°C，進行平滑處理")
-            
-            # 計算限制後的第一個點
-            if first_point_diff > 0:
-                limited_first_point = current_temp + threshold
-            else:
-                limited_first_point = current_temp - threshold
-                
-            # 使用線性插值平滑處理前3個點
-            smooth_range = min(3, len(predictions))
-            original_diff = predictions[0] - limited_first_point
-            
-            for i in range(smooth_range):
-                # 計算平滑係數，從0到1
-                smooth_factor = (i / (smooth_range - 1)) if smooth_range > 1 else 1
-                
-                # 線性插值調整
-                adjustment = original_diff * smooth_factor
-                smoothed_predictions[i] = limited_first_point + adjustment
-                
-            print(f"📊 平滑前第一點: {predictions[0]:.3f}°C → 平滑後: {smoothed_predictions[0]:.3f}°C")
-        
-        return smoothed_predictions
