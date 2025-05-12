@@ -671,7 +671,7 @@ class CoolingSystemController:
         # 初始化優化器和控制器
         self.sa_optimizer = HC_iTransformer.HC_Optimizer(
             adam=self.hardware.adam,
-            window_size=40,
+            window_size=25,
             P_max=control_params.p_max,
             target_temp=control_params.target_temp,
             model_path=model_config.model_path,
@@ -924,20 +924,20 @@ if __name__ == "__main__":
         # 配置示例
         hardware_config = HardwareConfig()
         model_config_parameters = HC_iTransformer.ModelConfig(
-            input_dim=7,
+            input_dim=6,
             d_model=16,
-            n_heads=8,
+            n_heads=2,
             e_layers=1,
-            d_ff=16,
+            d_ff=32,
             dropout=0.01,
-            seq_len=40,
-            pred_len=8,
+            seq_len=25,
+            pred_len=10,
         )
         model_config = ModelConfig(
-            scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
-            model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
-            exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_HC_data/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
-            exp_var="Fan_MPC_data_var_target_test",
+            scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
+            model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
+            exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_HC_data/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
+            exp_var="Fan_MPC_data_var_target_test_HC",
         )
         control_params = ControlParameters()
 
@@ -952,8 +952,8 @@ if __name__ == "__main__":
         # 測試實驗模式 (若需要測試，取消以下註釋)
         controller.start_experiment_mode(
             period=300,  # 5分鐘變化一次
-            gpu_targets=[70,70,70,70,70,70],
-            system_targets=[28,30,32,30,32,28]
+            gpu_targets=[70,70,70,70],
+            system_targets=[28,30,28,30]
         )
         
         controller.run() 

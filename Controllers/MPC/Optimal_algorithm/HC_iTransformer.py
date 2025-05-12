@@ -124,7 +124,7 @@ def load_model(model_path, config):
     return model
 
 class HC_Optimizer:
-    def __init__(self, adam, window_size=35, P_max=100, target_temp=25,
+    def __init__(self, adam, window_size=25, P_max=100, target_temp=25,
                  model_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth',
                  scaler_path='/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/seq40_pred8_dmodel16_dff16_nheads8_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib',
                  figure_path='/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_FHO_data'):
@@ -144,6 +144,7 @@ class HC_Optimizer:
         self.P_max = P_max  # 最大功率值
         self.max_speed_change = 15  # 最大轉速變化限制
         self.previous_fan_speed = None  # 前一次風扇轉速
+        self.back_step = 15  # 回推步長
         
         # 爬山演算法參數
         self.max_iterations = 15  # 最大迭代次數
@@ -152,7 +153,7 @@ class HC_Optimizer:
         # 目標函數參數
         self.w_temp = 1  # 溫度控制項權重
         self.w_speed = 0  # 速度平滑項權重
-        self.error_band = 0.3  # 溫度控制項誤差帶
+        self.error_band = 0.1  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -168,13 +169,13 @@ class HC_Optimizer:
         
         # 使用統一的模型配置
         self.model_config = ModelConfig(
-            input_dim=7,
+            input_dim=6,
             d_model=16,
-            n_heads=8,
+            n_heads=2,
             e_layers=1,
-            d_ff=16,
+            d_ff=32,
             dropout=0.01,
-            seq_len=40,
+            seq_len=25,
             pred_len=8
         )
         
@@ -212,7 +213,8 @@ class HC_Optimizer:
             list or None: 預測的溫度序列，若預測失敗則返回None。
         """
         data_copy = data.copy()  # 複製數據以避免修改原始數據
-        data_copy[-1][5] = fan_speed  # 設置風扇轉速值
+        data_copy[self.back_step:, 4] = data_copy[:-self.back_step, 4]  # 將序列向左平移self.back_step步
+        data_copy[-self.back_step:, 4] = fan_speed  # 用新的風扇轉速填充後self.back_step個時間步
         input_tensor = self.data_processor.transform_input_data(data_copy)  # 轉換輸入數據為張量
 
         if input_tensor is not None:
@@ -248,7 +250,7 @@ class HC_Optimizer:
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*5)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*6)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0

@@ -144,18 +144,20 @@ class SA_Optimizer:
         self.P_max = P_max  # 最大功率值
         self.max_speed_change = 10  # 最大轉速變化限制
         self.previous_fan_speed = None  # 前一次風扇轉速
+        self.back_step = 13  # 回退步長
         
         # 模擬退火參數
-        self.T_max = 6.0  # 初始溫度，增加以允許更大範圍探索
-        self.T_min = 0.5  # 最終溫度，降低以確保更精確的收斂
+        self.T_max = 1.0  # 初始溫度，增加以允許更大範圍探索
+        self.T_min = 0.3  # 最終溫度，降低以確保更精確的收斂
         self.alpha = 0.5  # 冷卻率，調整為較慢的降溫
-        self.max_iterations = 8  # 每個溫度的迭代次數，增加以提高每個溫度的探索
+        self.max_iterations = 6  # 每個溫度的迭代次數，增加以提高每個溫度的探索
         self.base_step = 5  # 基本步長，保持為5%
         
         # 目標函數參數
         self.w_temp = 1  # 溫度控制項權重
         self.w_speed = 0  # 速度平滑項權重
-        self.error_band = 0.2  # 溫度控制項誤差帶
+        self.w_energy = 0.2  # 能量消耗項權重
+        self.error_band = 0.1  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -171,14 +173,14 @@ class SA_Optimizer:
         
         # 使用統一的模型配置
         self.model_config = ModelConfig(
-            input_dim=7,
+            input_dim=6,
             d_model=16,
-            n_heads=4,
+            n_heads=2,
             e_layers=1,
             d_ff=32,
             dropout=0.01,
             seq_len=25,
-            pred_len=10
+            pred_len=8
         )
         
         # 創建模型實例 - 修正初始化方式
@@ -222,8 +224,9 @@ class SA_Optimizer:
         print(f"📊 特徵順序: T_GPU, T_CDU_in, T_CDU_out, T_air_in, T_air_out, fan_duty, pump_duty")
         
  
-        # 設置最後6秒的風扇轉速值
-        data_copy[-6:, 5] = fan_speed  # 設置最後6個時間步的風扇轉速值
+        # 將風扇序列向左平移self.back_step個時間步
+        data_copy[self.back_step:, 4] = data_copy[:-self.back_step, 4]  # 將序列向左平移self.back_step步
+        data_copy[-self.back_step:, 4] = fan_speed  # 用新的風扇轉速填充後self.back_step個時間步
         
         input_tensor = self.data_processor.transform_input_data(data_copy)  # 轉換輸入數據為張量
 
@@ -244,7 +247,14 @@ class SA_Optimizer:
                 
                 return predicted_temps
         return None
-
+    
+    def fan_speed_energy(self, fan_speed):
+        """計算風扇轉速的能量消耗。
+        
+        Args:
+            fan_speed (float): 風扇轉速。
+        """
+        return fan_speed **3
     def objective_function(self, fan_speed, predicted_temps, error, current_temp):
         """計算最佳化的目標函數值。
         
@@ -259,24 +269,26 @@ class SA_Optimizer:
         """
         if predicted_temps is None:
             return float('inf')  # 若預測失敗，返回無窮大成本
-
+        if fan_speed > 80:
+            speed_energy = self.fan_speed_energy(fan_speed)
+        else:
+            speed_energy = 0
         # 速度平滑項
         speed_smooth = 0
         if self.previous_fan_speed is not None:
             speed_change = abs(fan_speed - self.previous_fan_speed)
-            speed_smooth = speed_change**2 
-      
+            speed_smooth = speed_change 
         temp_error = 0
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*3)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*7)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
 
         # 總成本
-        total_cost =self.w_temp * temp_error   # 總成本等於溫度誤差
+        total_cost =self.w_temp * temp_error + self.w_energy * speed_energy 
         
         return total_cost
 
@@ -316,14 +328,6 @@ class SA_Optimizer:
         new_speed = max(40, min(100, new_speed))
         new_speed = int(new_speed // 5 * 5)  # 確保是5的倍數
         
-        # 確保新的值和當前值有區別
-        if new_speed == current_speed:
-            # 如果沒有變化，強制向上或向下移動一個步長
-            direction = 1 if random.random() > 0.5 else -1
-            new_speed = current_speed + (direction * step_size)
-            # 再次確保在有效範圍內
-            new_speed = max(40, min(100, new_speed))
-        
         return int(new_speed)
 
     def optimize(self):
@@ -354,7 +358,7 @@ class SA_Optimizer:
         
         # 計算初始解的成本
         predicted_temps = self.predict_temp(current_speed, fixed_window_data)  # 預測溫度
-        current_cost = self.objective_function(current_speed, predicted_temps, error, current_temp)  # 計算當前成本
+        current_cost = self.objective_function(fan_speed=current_speed, predicted_temps=predicted_temps, error=error, current_temp=current_temp)  # 計算當前成本
         best_cost = current_cost  # 最佳成本初始值
         
         # 顯示初始解的預測溫度變化方向
@@ -374,7 +378,7 @@ class SA_Optimizer:
                 # 生成新解
                 new_speed = self.generate_neighbor(current_speed)  # 生成鄰近解
                 predicted_temps = self.predict_temp(new_speed, fixed_window_data)  # 預測新解的溫度
-                new_cost = self.objective_function(new_speed, predicted_temps, error, current_temp)  # 計算新解的成本
+                new_cost = self.objective_function(fan_speed=new_speed, predicted_temps=predicted_temps, error=error, current_temp=current_temp)  # 計算新解的成本
                 
                 # 計算成本差異
                 delta_cost = new_cost - current_cost  # 成本變化
@@ -391,8 +395,8 @@ class SA_Optimizer:
                 如果新解的成本比當前解更低，則接受新解
                 如果新解的成本比當前解更高，則以一定的概率接受新解，這個概率與溫度T和成本差異delta_cost有關
                 '''
-                accept = delta_cost < 0 or random.random() < math.exp(-delta_cost / T)  
-                if accept:
+                accept = delta_cost < 0 or random.random() < math.exp(-delta_cost / T)
+                if accept :
                     current_speed = new_speed  # 更新當前解
                     current_cost = new_cost  # 更新當前成本
                     

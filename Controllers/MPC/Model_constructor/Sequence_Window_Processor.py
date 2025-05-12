@@ -25,7 +25,7 @@ class SequenceWindowProcessor:
         self.window_size = window_size
         self.adam = adams_controller
         self.device = device
-        self.buffer = np.zeros((window_size, 7))  # 直接儲存原始數據
+        self.buffer = np.zeros((window_size, 6))  # 直接儲存原始數據
         self.buffer_lock = threading.Lock()
 
         # 加載 Data Processor (Scaler)
@@ -81,7 +81,6 @@ class SequenceWindowProcessor:
                 self.adam.buffer[2],  # T_CDU_in
                 self.adam.buffer[3],  # T_CDU_out
                 self.adam.buffer[5],  # T_air_in
-                self.adam.buffer[6],  # T_air_out
                 self.adam.buffer[8],  # fan_duty
                 self.adam.buffer[9]   # pump_duty
             ]).reshape(1, -1)
@@ -142,14 +141,14 @@ class SequenceWindowProcessor:
                 cdu_out_predictions = scaled_predictions[:, 2] if scaled_predictions.shape[1] >= 3 else scaled_predictions[:, 0]
                 
                 # 確保只取前pred_len個時間步(8個)
-                cdu_out_predictions = cdu_out_predictions[:10]
+                cdu_out_predictions = cdu_out_predictions[:8]
                 
                 # 擴展為正確的形狀以進行反標準化
                 scaled_reshape = cdu_out_predictions.reshape(-1, 1)
             else:
                 # 如果是其他形狀，嘗試合理處理
                 # 先打平然後取前8個值
-                cdu_out_predictions = scaled_predictions.flatten()[:10]
+                cdu_out_predictions = scaled_predictions.flatten()[:8]
                 scaled_reshape = cdu_out_predictions.reshape(-1, 1)
             
             #print(f"🔄 處理後形狀: {scaled_reshape.shape}")
