@@ -937,7 +937,7 @@ if __name__ == "__main__":
             scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
             model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
             exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
-            exp_var="Fan_MPC_data_var_target_test_5",
+            exp_var="Fan_MPC_data_var_power_test",
         )
         control_params = ControlParameters()
 
@@ -953,7 +953,7 @@ if __name__ == "__main__":
         controller.start_experiment_mode(
             period=300,  # 5分鐘變化一次
             gpu_targets=[70,70,70,70],
-            system_targets=[28,30,28,30]
+            system_targets=[29,29,29,29]
         )
          
         controller.run() 

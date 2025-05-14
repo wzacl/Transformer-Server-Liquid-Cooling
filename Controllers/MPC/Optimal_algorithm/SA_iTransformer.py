@@ -144,20 +144,20 @@ class SA_Optimizer:
         self.P_max = P_max  # 最大功率值
         self.max_speed_change = 10  # 最大轉速變化限制
         self.previous_fan_speed = None  # 前一次風扇轉速
-        self.back_step = 13  # 回退步長
+        self.back_step = 10  # 回退步長
         
         # 模擬退火參數
         self.T_max = 1.0  # 初始溫度，增加以允許更大範圍探索
-        self.T_min = 0.3  # 最終溫度，降低以確保更精確的收斂
-        self.alpha = 0.5  # 冷卻率，調整為較慢的降溫
-        self.max_iterations = 6  # 每個溫度的迭代次數，增加以提高每個溫度的探索
+        self.T_min = 0.1  # 最終溫度，降低以確保更精確的收斂
+        self.alpha = 0.8  # 冷卻率，調整為較慢的降溫
+        self.max_iterations = 8  # 每個溫度的迭代次數，增加以提高每個溫度的探索
         self.base_step = 5  # 基本步長，保持為5%
         
         # 目標函數參數
         self.w_temp = 1  # 溫度控制項權重
         self.w_speed = 0  # 速度平滑項權重
-        self.w_energy = 0.2  # 能量消耗項權重
-        self.error_band = 0.1  # 溫度控制項誤差帶
+        self.w_energy = 0  # 能量消耗項權重
+        self.error_band = 0.2  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -254,7 +254,7 @@ class SA_Optimizer:
         Args:
             fan_speed (float): 風扇轉速。
         """
-        return fan_speed **3
+        return (fan_speed*0.1) **3
     def objective_function(self, fan_speed, predicted_temps, error, current_temp):
         """計算最佳化的目標函數值。
         
@@ -269,20 +269,14 @@ class SA_Optimizer:
         """
         if predicted_temps is None:
             return float('inf')  # 若預測失敗，返回無窮大成本
-        if fan_speed > 80:
-            speed_energy = self.fan_speed_energy(fan_speed)
-        else:
-            speed_energy = 0
-        # 速度平滑項
-        speed_smooth = 0
-        if self.previous_fan_speed is not None:
-            speed_change = abs(fan_speed - self.previous_fan_speed)
-            speed_smooth = speed_change 
+
+        speed_energy = self.fan_speed_energy(fan_speed)
+
         temp_error = 0
         # 只計算預測序列中所有溫度差
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*7)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*8)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
@@ -426,24 +420,27 @@ class SA_Optimizer:
             # 顯示每個時間步的最終預測溫度
             print(f"   最終預測溫度序列: {[f'{temp:.2f}' for temp in final_predicted_temps]}")
         
-        # 應用最大轉速變化限制
-        current_system_speed = self.adam.buffer[8] if self.adam.buffer[8] is not None else 60
-        max_change = self.max_speed_change  # 使用已定義的最大變化率
-        
-        # 計算允許的轉速範圍
-        min_allowed_speed = max(40, current_system_speed - max_change)
-        max_allowed_speed = min(100, current_system_speed + max_change)
-        
-        # 限制最佳風扇轉速變化
-        if best_speed < min_allowed_speed:
-            best_speed = int(min_allowed_speed)
-            print(f"⚠️ 轉速變化過大，限制為下限: {best_speed}%")
-        elif best_speed > max_allowed_speed:
-            best_speed = int(max_allowed_speed)
-            print(f"⚠️ 轉速變化過大，限制為上限: {best_speed}%")
-        
-        print(f"✅ 最佳化完成: 風扇轉速 = {best_speed}%, 最終成本 = {best_cost:.2f}")
-        return best_speed, best_cost
+        if abs(self.adam.buffer[3] -self.target_temp) < 1 :
+            # 應用最大轉速變化限制
+            current_system_speed = self.adam.buffer[8] if self.adam.buffer[8] is not None else 60
+            max_change = self.max_speed_change  # 使用已定義的最大變化率
+            
+            # 計算允許的轉速範圍
+            min_allowed_speed = max(40, current_system_speed - max_change)
+            max_allowed_speed = min(100, current_system_speed + max_change)
+            
+            # 限制最佳風扇轉速變化
+            if best_speed < min_allowed_speed:
+                best_speed = int(min_allowed_speed)
+                print(f"⚠️ 轉速變化過大，限制為下限: {best_speed}%")
+            elif best_speed > max_allowed_speed:
+                best_speed = int(max_allowed_speed)
+                print(f"⚠️ 轉速變化過大，限制為上限: {best_speed}%")
+            
+            print(f"✅ 最佳化完成: 風扇轉速 = {best_speed}%, 最終成本 = {best_cost:.2f}")
+            return best_speed, best_cost
+        else:
+            return  best_speed, best_cost
 
     def plot_cost(self):
         """繪製成本歷史圖表"""
