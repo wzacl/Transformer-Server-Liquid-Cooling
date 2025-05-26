@@ -219,7 +219,7 @@ class ControlParameters:
                  p_max: float = 100,
                  gpu_target: float = 71,
                  target_temp: float = 30,
-                 control_frequency: int = 6,
+                 control_frequency: int = 5,
                  initial_fan_duty: float = 60,
                  initial_pump_duty: float = 60):
         self.p_max = p_max
@@ -691,6 +691,11 @@ class CoolingSystemController:
             'fan_duty': None,
             'pump_duty': None
         }
+        
+        # 初始化回授控制相關變數
+        self.past_CDU_out_temp = None
+        self.current_CDU_out_temp = None
+        
         self.counter = 0
         self.running = True
 
@@ -836,41 +841,60 @@ class CoolingSystemController:
 
         # 定期執行風扇優化
         if self.counter % self.control_params.control_frequency == 0:
-            self.display.display_fan_optimization()
+            self.current_CDU_out_temp = self.hardware.adam.buffer[3]
             
-            # 替換SA_Optimizer中的print函數，減少輸出
-            SA_iTransformer.print = lambda *args, **kwargs: self.filter_sa_logs(*args, **kwargs)
+            # 簡化的判斷邏輯：檢查是否需要優化
+            current_error = abs(self.current_CDU_out_temp - self.control_params.target_temp)
+            past_error = abs(self.past_CDU_out_temp - self.control_params.target_temp) if self.past_CDU_out_temp is not None else float('inf')
             
-            start_time = time.time()
-            optimal_fan_speed, optimal_cost = self.sa_optimizer.optimize()
-            optimization_time = time.time() - start_time
+            # 觸發優化的條件：
+            # 1. 當前誤差超過閾值 (0.5°C)
+            # 2. 或者溫度趨勢變差（當前誤差比過去誤差大）
+            should_optimize = (current_error > 0.5) or (current_error > past_error)
             
-            # 恢復原始print函數
-            SA_iTransformer.print = print
-            
-            if optimal_fan_speed is not None:
-                # 先顯示優化結果，再改變設定，使結果更容易被看到
-                self.display.display_optimization_result(
-                    optimal_fan_speed,
-                    optimal_cost,
-                    temps_data['fan_duty'],
-                    optimization_time
-                )
+            if should_optimize:
+                self.display.display_fan_optimization()
                 
-                # 更新風扇設定
-                self.hardware.fan1.set_all_duty_cycle(int(optimal_fan_speed))
-                self.hardware.fan2.set_all_duty_cycle(int(optimal_fan_speed))
-                self.hardware.adam.update_duty_cycles(fan_duty=int(optimal_fan_speed))
+                # 替換SA_Optimizer中的print函數，減少輸出
+                SA_iTransformer.print = lambda *args, **kwargs: self.filter_sa_logs(*args, **kwargs)
                 
-                # 顯示優化歷史記錄
-                self.display.display_optimization_history()
+                start_time = time.time()
+                optimal_fan_speed, optimal_cost = self.sa_optimizer.optimize()
+                optimization_time = time.time() - start_time
                 
-                # 顯示控制選項
-                self.display.display_control_options(
-                    self.control_params.gpu_target,
-                    self.control_params.target_temp,
-                    self.experiment_mode.enabled
-                )
+                # 恢復原始print函數
+                SA_iTransformer.print = print
+                
+                if optimal_fan_speed is not None:
+                    # 先顯示優化結果，再改變設定，使結果更容易被看到
+                    self.display.display_optimization_result(
+                        optimal_fan_speed,
+                        optimal_cost,
+                        temps_data['fan_duty'],
+                        optimization_time
+                    )
+                    
+                    # 更新風扇設定
+                    self.hardware.fan1.set_all_duty_cycle(int(optimal_fan_speed))
+                    self.hardware.fan2.set_all_duty_cycle(int(optimal_fan_speed))
+                    self.hardware.adam.update_duty_cycles(fan_duty=int(optimal_fan_speed))
+                    
+                    # 顯示優化歷史記錄
+                    self.display.display_optimization_history()
+                    
+                    # 顯示控制選項
+                    self.display.display_control_options(
+                        self.control_params.gpu_target,
+                        self.control_params.target_temp,
+                        self.experiment_mode.enabled
+                    )
+                else:
+                    print('優化器未返回有效解')
+            else:
+                print('目前的解已為最優解，不進行優化')
+            
+            # 更新過去溫度記錄
+            self.past_CDU_out_temp = self.current_CDU_out_temp
         
         self.counter += 1
 
@@ -937,7 +961,7 @@ if __name__ == "__main__":
             scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
             model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
             exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
-            exp_var="Fan_MPC_data_var_power_test",
+            exp_var="Fan_MPC_data_feedback_v2_1",
         )
         control_params = ControlParameters()
 
@@ -951,9 +975,9 @@ if __name__ == "__main__":
         
         # 測試實驗模式 (若需要測試，取消以下註釋)
         controller.start_experiment_mode(
-            period=300,  # 5分鐘變化一次
-            gpu_targets=[70,70,70,70],
-            system_targets=[29,29,29,29]
+            period=400,  # 5分鐘變化一次
+            gpu_targets=[70,72,70,72],
+            system_targets=[28,30,28,30]
         )
          
         controller.run() 

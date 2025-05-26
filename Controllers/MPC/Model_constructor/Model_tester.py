@@ -9,11 +9,11 @@ class Model_tester:
         self.adam = adam
         self.test_mode = None  # 1: 只變動風扇, 2: 只變動泵, 3: 隨機變動, 4: 自訂風扇變動, 5: 自訂泵變動, 6: 固定風扇與泵轉速
         self.start_time = None
-        self.wait_time = 30  # 初始等待 60 秒
+        self.wait_time = 30  # 初始等待 30 秒
         self.device_type = None  # 記錄目前變動的是風扇還是泵
         self.phase = "wait"  # "wait" = 等待 60 秒, "running" = 變動後開始計時, "end" = 結束
-        self.fan_duty_sequence = [30, 60, 50, 60, 70, 60, 100, 60]
-        self.pump_duty_sequence = [40, 60, 50, 60, 70, 60, 100, 60]
+        self.fan_duty_sequence = [30, 60, 50, 60, 70, 60, 100, 60, 50, 60, 70,80,90,100,30,60,90]
+        self.pump_duty_sequence = [40, 60, 50, 60, 70, 60, 100, 60, 50, 60, 70, 80, 90, 100, 90, 80, 70, 60, 30, 100, 60, 100]
         self.current_index = 0
         self.run_time = 0  # 預設運行時間
         self.total_run_time = None  # 總運行時長
@@ -42,12 +42,12 @@ class Model_tester:
             print(f"設定初始等待時間為 {self.wait_time} 秒")
 
         if mode == 1:
-            self.run_time = 180  # 變動後運行 180 秒
+            self.run_time = 100  # 變動後運行 100 秒
             self.device_type = "fan"
             print(f"[測試 1] 先維持原風扇轉速 {self.wait_time} 秒，然後變動風扇")
 
         elif mode == 2:
-            self.run_time = 50  # 變動後運行 50 秒
+            self.run_time = 25  # 變動後運行 25 秒
             self.device_type = "pump"
             print(f"[測試 2] 先維持原泵轉速 {self.wait_time} 秒，然後變動泵")
 

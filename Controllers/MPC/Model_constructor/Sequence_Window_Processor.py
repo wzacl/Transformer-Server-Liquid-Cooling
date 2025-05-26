@@ -115,7 +115,7 @@ class SequenceWindowProcessor:
                 data = torch.tensor(self.input_scaler.transform(data), dtype=torch.float32).unsqueeze(0).to(self.device)
             return data
 
-    def inverse_transform_predictions(self, scaled_predictions, smooth=True):
+    def inverse_transform_predictions(self, scaled_predictions):
         """
         反標準化預測數據
         
@@ -123,7 +123,6 @@ class SequenceWindowProcessor:
         
         Args:
             scaled_predictions (numpy.ndarray): 標準化後的預測數據
-            smooth (bool): 是否對預測結果進行平滑處理
             
         Returns:
             numpy.ndarray: 反標準化後的預測數據

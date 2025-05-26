@@ -149,7 +149,7 @@ class SA_Optimizer:
         # 模擬退火參數
         self.T_max = 1.0  # 初始溫度，增加以允許更大範圍探索
         self.T_min = 0.1  # 最終溫度，降低以確保更精確的收斂
-        self.alpha = 0.8  # 冷卻率，調整為較慢的降溫
+        self.alpha = 0.85  # 冷卻率，調整為較慢的降溫
         self.max_iterations = 8  # 每個溫度的迭代次數，增加以提高每個溫度的探索
         self.base_step = 5  # 基本步長，保持為5%
         
@@ -157,7 +157,7 @@ class SA_Optimizer:
         self.w_temp = 1  # 溫度控制項權重
         self.w_speed = 0  # 速度平滑項權重
         self.w_energy = 0  # 能量消耗項權重
-        self.error_band = 0.2  # 溫度控制項誤差帶
+        self.error_band = 0.22  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -243,7 +243,7 @@ class SA_Optimizer:
                 print(f"📊 原始縮放預測形狀: {scaled_predictions.shape}")
                 
                 # 使用修改後的反轉縮放方法
-                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions, smooth=False)  # 反轉縮放
+                predicted_temps = self.data_processor.inverse_transform_predictions(scaled_predictions)  # 反轉縮放
                 
                 return predicted_temps
         return None
@@ -272,14 +272,16 @@ class SA_Optimizer:
 
         speed_energy = self.fan_speed_energy(fan_speed)
 
-        temp_error = 0
         # 只計算預測序列中所有溫度差
+
+        temp_error = 0
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
-                temp_diff = (abs(i - self.target_temp)*8)**2  # 溫度差的平方
+                temp_diff = (abs(i - self.target_temp)*6)**2  # 溫度差的平方
                 temp_error += temp_diff
             else:
                 temp_error += 0
+        
 
         # 總成本
         total_cost =self.w_temp * temp_error + self.w_energy * speed_energy 
@@ -296,7 +298,6 @@ class SA_Optimizer:
             int: 新生成的風扇轉速值，保證是5%的倍數
         """
         # 初始化步長為5%，對應實際風扇調節的最小單位
-        step_size = 5
         
         if self.previous_fan_speed is not None:
             # 根據當前溫度決定搜索寬度
@@ -307,20 +308,20 @@ class SA_Optimizer:
             step_count = random.randint(-max_steps, max_steps)
             
             # 計算轉速變化，確保是5的倍數
-            delta = step_count * step_size
+            delta = step_count * self.base_step
             
             # 計算新的轉速值
             new_speed = current_speed + delta
         else:
             # 首次運行，隨機生成一個5%的倍數作為初始解
             # 從40%到100%之間，以5%為步長生成隨機值
-            possible_speeds = list(range(40, 105, 5))  # [40, 45, 50, ..., 100]
+            possible_speeds = list(range(60, 105, 5))  # [40, 45, 50, ..., 100]
             new_speed = random.choice(possible_speeds)
         
         # 確保轉速值在有效範圍內（40%-100%）
         # 並且結果為5的倍數（向下取整到最近的5的倍數）
         new_speed = max(40, min(100, new_speed))
-        new_speed = int(new_speed // 5 * 5)  # 確保是5的倍數
+        new_speed = int(new_speed // self.base_step * self.base_step)  # 確保是5的倍數
         
         return int(new_speed)
 
