@@ -10,9 +10,9 @@ import os
 # -- 新增的 sys.path 修改開始 --
 # 獲取目前檔案 (iTransformer_MPC.py) 的絕對路徑
 _current_file_path = os.path.abspath(__file__)
-# 導航到專案根目錄 (2KWCDU_修改版本)
-# .../code_manage/Controllers/MPC/iTransformer_MPC.py -> .../2KWCDU_修改版本/
-_project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_current_file_path))))
+# 導航到專案根目錄
+# .../Controllers/Scriptrun/iTransformer_MPC.py -> .../專案根目錄/
+_project_root_dir = os.path.dirname(os.path.dirname(_current_file_path))
 
 # 如果專案根目錄不在 sys.path 中，則將其加入到最前面
 if _project_root_dir not in sys.path:
@@ -20,19 +20,20 @@ if _project_root_dir not in sys.path:
 # -- 新增的 sys.path 修改結束 --
 
 import time
-# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit') # 建議後續移除
-# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor') # 建議後續移除
-# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/GB_PID') # 建議後續移除
+# 以下舊式路徑設定已移除，現在使用動態路徑設定
+# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Control_Unit') # 已移除
+# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/MPC/Model_constructor') # 已移除  
+# sys.path.append('/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Controllers/GB_PID') # 已移除
 from collections import deque
 import math
 import numpy as np
 from typing import Optional, Tuple, List, Dict, Any
-from code_manage.Control_Unit import ADAMScontroller  # 數據採集控制器 - 修改為絕對導入
-from code_manage.Control_Unit import pwmcontroller as ctrl  # PWM控制器 - 修改為絕對導入
-from code_manage.Control_Unit import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器 - 修改為絕對導入
+from Control_Unit import ADAMScontroller  # 數據採集控制器
+from Control_Unit import pwmcontroller as ctrl  # PWM控制器
+from Control_Unit import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器
 from simple_pid import PID  # PID控制器庫 (假設為已安裝的第三方庫)
-from code_manage.Controllers.MPC.Optimal_algorithm import SA_iTransformer as SA_iTransformer  # 模擬退火優化器 - 修改為絕對導入
-from code_manage.Controllers.GB_PID import GB_PID_pump as Pump_pid  # 泵控制PID - 修改為絕對導入
+from Controllers.MPC.Optimal_algorithm import SA_iTransformer as SA_iTransformer  # 模擬退火優化器
+from Controllers.GB_PID import GB_PID_pump as Pump_pid  # 泵控制PID
 
 class HardwareConfig:
     """硬體配置類

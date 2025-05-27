@@ -1,6 +1,5 @@
-import time
 import serial
-import sys
+import time
 
 class XYKPWMController:
     """

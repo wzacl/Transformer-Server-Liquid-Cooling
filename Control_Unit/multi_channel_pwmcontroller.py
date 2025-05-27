@@ -1,6 +1,4 @@
-import time
 import serial
-import sys
 """
 以下程式碼經過處理，將輸入的命令用更簡單的方式呈現在使用者面前並非原始的通訊樣式
 該pwm訊號產生器主要功能與對應的命令分別是：
