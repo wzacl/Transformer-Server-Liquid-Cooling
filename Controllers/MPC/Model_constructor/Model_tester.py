@@ -12,8 +12,8 @@ class Model_tester:
         self.wait_time = 30  # 初始等待 30 秒
         self.device_type = None  # 記錄目前變動的是風扇還是泵
         self.phase = "wait"  # "wait" = 等待 60 秒, "running" = 變動後開始計時, "end" = 結束
-        self.fan_duty_sequence = [30, 60, 50, 60, 70, 60, 100, 60, 50, 60, 70,80,90,100,30,60,90]
-        self.pump_duty_sequence = [40, 60, 50, 60, 70, 60, 100, 60, 50, 60, 70, 80, 90, 100, 90, 80, 70, 60, 30, 100, 60, 100]
+        self.fan_duty_sequence = [70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70]
+        self.pump_duty_sequence = [40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40]
         self.current_index = 0
         self.run_time = 0  # 預設運行時間
         self.total_run_time = None  # 總運行時長

@@ -97,7 +97,7 @@ time_window = 25
 #設置實驗資料放置的資料夾
 exp_name = f'/home/inventec/Desktop/2KWCDU_修改版本/data_manage/Real_time_Prediction_data/iTransformer/{test_model}'
 #設置實驗資料檔案名稱
-exp_var = 'GPU15KW_1(285V_8A)_random_test'
+exp_var = 'all_random_test'
 #設置實驗資料標題
 custom_headers = ['time', 'T_GPU', 'T_heater', 'T_CDU_in', 'T_CDU_out', 'T_env', 'T_air_in', 'T_air_out', 'TMP8', 'fan_duty', 'pump_duty', 'GPU_Watt(KW)']
 

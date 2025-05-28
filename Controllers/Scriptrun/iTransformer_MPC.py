@@ -10,9 +10,9 @@ import os
 # -- 新增的 sys.path 修改開始 --
 # 獲取目前檔案 (iTransformer_MPC.py) 的絕對路徑
 _current_file_path = os.path.abspath(__file__)
-# 導航到專案根目錄
-# .../Controllers/Scriptrun/iTransformer_MPC.py -> .../專案根目錄/
-_project_root_dir = os.path.dirname(os.path.dirname(_current_file_path))
+# 導航到專案根目錄 (2KWCDU_修改版本)
+# .../Controllers/Scriptrun/iTransformer_MPC.py -> .../2KWCDU_修改版本/
+_project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_current_file_path))))
 
 # 如果專案根目錄不在 sys.path 中，則將其加入到最前面
 if _project_root_dir not in sys.path:
@@ -28,12 +28,12 @@ from collections import deque
 import math
 import numpy as np
 from typing import Optional, Tuple, List, Dict, Any
-from Control_Unit import ADAMScontroller  # 數據採集控制器
-from Control_Unit import pwmcontroller as ctrl  # PWM控制器
-from Control_Unit import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器
+from code_manage.Control_Unit import ADAMScontroller  # 數據採集控制器 - 修改為絕對導入
+from code_manage.Control_Unit import pwmcontroller as ctrl  # PWM控制器 - 修改為絕對導入
+from code_manage.Control_Unit import multi_channel_pwmcontroller as multi_ctrl  # 多通道PWM控制器 - 修改為絕對導入
 from simple_pid import PID  # PID控制器庫 (假設為已安裝的第三方庫)
-from Controllers.MPC.Optimal_algorithm import SA_iTransformer as SA_iTransformer  # 模擬退火優化器
-from Controllers.GB_PID import GB_PID_pump as Pump_pid  # 泵控制PID
+from code_manage.Controllers.MPC.Optimal_algorithm import SA_iTransformer as SA_iTransformer  # 模擬退火優化器 - 修改為絕對導入
+from code_manage.Controllers.GB_PID import GB_PID_pump as Pump_pid  # 泵控制PID - 修改為絕對導入
 
 class HardwareConfig:
     """硬體配置類
@@ -220,7 +220,7 @@ class ControlParameters:
                  p_max: float = 100,
                  gpu_target: float = 71,
                  target_temp: float = 30,
-                 control_frequency: int = 5,
+                 control_frequency: int = 6,
                  initial_fan_duty: float = 60,
                  initial_pump_duty: float = 60):
         self.p_max = p_max
@@ -962,7 +962,7 @@ if __name__ == "__main__":
             scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
             model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
             exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
-            exp_var="Fan_MPC_data_feedback_v2_1",
+            exp_var="Fan_MPC_data_feedback_v2_f6_dynamic_limit_power_test",
         )
         control_params = ControlParameters()
 
@@ -976,9 +976,9 @@ if __name__ == "__main__":
         
         # 測試實驗模式 (若需要測試，取消以下註釋)
         controller.start_experiment_mode(
-            period=400,  # 5分鐘變化一次
+            period=240,  # 5分鐘變化一次
             gpu_targets=[70,72,70,72],
-            system_targets=[28,30,28,30]
+            system_targets=[28,31,28,31]
         )
          
         controller.run() 

@@ -146,18 +146,31 @@ class SA_Optimizer:
         self.previous_fan_speed = None  # 前一次風扇轉速
         self.back_step = 10  # 回退步長
         
+        # 動態轉速下限控制參數
+        # 觸發條件說明：
+        # 1. 動態轉速下限：在目標溫度正負1度之間觸發
+        #    - 當目標溫度為28度時，轉速下限為65%
+        #    - 當目標溫度為34度時，轉速下限為30%
+        #    - 28-34度之間使用線性插值
+        # 
+        # 2. 最大轉速變化限制：在目標溫度正負0.5度之間觸發
+        #    - 限制單次轉速變化不超過±10%
+        # 
+        # 3. 完全自由範圍：在大於目標溫度正負1度時
+        #    - 轉速變動範圍為30-100%
+        
         # 模擬退火參數
         self.T_max = 1.0  # 初始溫度，增加以允許更大範圍探索
         self.T_min = 0.1  # 最終溫度，降低以確保更精確的收斂
-        self.alpha = 0.85  # 冷卻率，調整為較慢的降溫
-        self.max_iterations = 8  # 每個溫度的迭代次數，增加以提高每個溫度的探索
+        self.alpha = 0.7  # 冷卻率，調整為較慢的降溫
+        self.max_iterations = 10  # 每個溫度的迭代次數，增加以提高每個溫度的探索
         self.base_step = 5  # 基本步長，保持為5%
         
         # 目標函數參數
         self.w_temp = 1  # 溫度控制項權重
         self.w_speed = 0  # 速度平滑項權重
         self.w_energy = 0  # 能量消耗項權重
-        self.error_band = 0.22  # 溫度控制項誤差帶
+        self.error_band = 0.2  # 溫度控制項誤差帶
         
         # 最佳化結果追蹤
         self.best_solution = None  # 最佳解決方案
@@ -288,11 +301,46 @@ class SA_Optimizer:
         
         return total_cost
 
-    def generate_neighbor(self, current_speed):
+    def calculate_dynamic_speed_limit(self, current_temp):
+        """根據目標溫度計算動態轉速下限
+        
+        Args:
+            current_temp (float): 當前溫度
+            
+        Returns:
+            int: 動態計算的轉速下限，若不在溫度範圍內則返回預設下限30%
+        """
+        # 檢查是否在目標溫度正負1度範圍內（動態轉速下限觸發條件）
+        if abs(current_temp - self.target_temp) <= 1:
+            # 根據目標溫度計算轉速下限
+            if self.target_temp <= 28:
+                # 目標溫度小於等於28度時，下限為65%
+                dynamic_limit = 65
+                print(f"🎯 動態轉速下限啟用: 目標溫度={self.target_temp}°C (≤28), 當前溫度={current_temp:.1f}°C, 下限={dynamic_limit}%")
+            elif self.target_temp >= 34:
+                # 目標溫度大於等於34度時，下限為30%
+                dynamic_limit = 30
+                print(f"🎯 動態轉速下限啟用: 目標溫度={self.target_temp}°C (≥34), 當前溫度={current_temp:.1f}°C, 下限={dynamic_limit}%")
+            else:
+                # 目標溫度在28-34度之間，使用線性插值
+                # 目標溫度28度 -> 轉速下限65%
+                # 目標溫度34度 -> 轉速下限30%
+                speed_limit = 65 - (65 - 30) * (self.target_temp - 28) / (34 - 28)
+                dynamic_limit = max(30, min(65, int(speed_limit // 5 * 5)))  # 確保是5的倍數且在合理範圍內
+                print(f"🎯 動態轉速下限啟用: 目標溫度={self.target_temp}°C (28-34範圍), 當前溫度={current_temp:.1f}°C, 計算下限={dynamic_limit}%")
+            
+            return dynamic_limit
+        else:
+            # 不在正負1度範圍內，返回預設下限30%
+            print(f"📊 溫度差異 {abs(current_temp - self.target_temp):.1f}°C > 1.0°C: 使用預設下限30%")
+            return 30
+
+    def generate_neighbor(self, current_speed, current_temp=None):
         """生成鄰近解。確保生成的風扇轉速始終是5%的倍數，以匹配控制系統的實際步長。
         
         Args:
             current_speed (float): 當前風扇轉速
+            current_temp (float): 當前溫度，用於計算動態轉速下限
             
         Returns:
             int: 新生成的風扇轉速值，保證是5%的倍數
@@ -314,13 +362,19 @@ class SA_Optimizer:
             new_speed = current_speed + delta
         else:
             # 首次運行，隨機生成一個5%的倍數作為初始解
-            # 從40%到100%之間，以5%為步長生成隨機值
-            possible_speeds = list(range(60, 105, 5))  # [40, 45, 50, ..., 100]
+            # 從60%到100%之間，以5%為步長生成隨機值
+            possible_speeds = list(range(60, 105, 5))  # [60, 65, 70, ..., 100]
             new_speed = random.choice(possible_speeds)
         
-        # 確保轉速值在有效範圍內（40%-100%）
+        # 計算動態轉速下限
+        if current_temp is not None:
+            min_speed = self.calculate_dynamic_speed_limit(current_temp)
+        else:
+            min_speed = 30  # 預設最低轉速
+        
+        # 確保轉速值在有效範圍內（動態下限%-100%）
         # 並且結果為5的倍數（向下取整到最近的5的倍數）
-        new_speed = max(40, min(100, new_speed))
+        new_speed = max(min_speed, min(100, new_speed))
         new_speed = int(new_speed // self.base_step * self.base_step)  # 確保是5的倍數
         
         return int(new_speed)
@@ -336,7 +390,7 @@ class SA_Optimizer:
             return None, None
 
         else:
-            current_temp = fixed_window_data[-1][1]  # 當前溫度
+            current_temp = self.adam.buffer[3]  # 當前溫度
             # 移除對未定義變量的引用，直接將誤差設為0
             error = 0  # 初始化誤差為0
             print("✅ 數據蒐集完成，開始進行模擬退火最佳化")
@@ -371,7 +425,7 @@ class SA_Optimizer:
             
             for _ in range(self.max_iterations):
                 # 生成新解
-                new_speed = self.generate_neighbor(current_speed)  # 生成鄰近解
+                new_speed = self.generate_neighbor(current_speed, current_temp)  # 生成鄰近解，傳入當前溫度
                 predicted_temps = self.predict_temp(new_speed, fixed_window_data)  # 預測新解的溫度
                 new_cost = self.objective_function(fan_speed=new_speed, predicted_temps=predicted_temps, error=error, current_temp=current_temp)  # 計算新解的成本
                 
@@ -421,27 +475,47 @@ class SA_Optimizer:
             # 顯示每個時間步的最終預測溫度
             print(f"   最終預測溫度序列: {[f'{temp:.2f}' for temp in final_predicted_temps]}")
         
-        if abs(self.adam.buffer[3] -self.target_temp) < 1 :
-            # 應用最大轉速變化限制
-            current_system_speed = self.adam.buffer[8] if self.adam.buffer[8] is not None else 60
+        dynamic_min_speed = self.calculate_dynamic_speed_limit(current_temp)
+        current_system_speed = self.adam.buffer[8] if self.adam.buffer[8] is not None else 60
+        
+        # 根據當前溫度與目標溫度的差異決定轉速控制策略
+        temp_diff = abs(self.adam.buffer[3] - self.target_temp)
+        
+        if temp_diff <= 0.5:
+            # 在目標溫度正負0.5度之間：應用最大轉速變化限制
             max_change = self.max_speed_change  # 使用已定義的最大變化率
             
-            # 計算允許的轉速範圍
-            min_allowed_speed = max(40, current_system_speed - max_change)
+            # 計算允許的轉速範圍（限制變化幅度）
+            min_allowed_speed = max(dynamic_min_speed, current_system_speed - max_change)
             max_allowed_speed = min(100, current_system_speed + max_change)
             
-            # 限制最佳風扇轉速變化
-            if best_speed < min_allowed_speed:
-                best_speed = int(min_allowed_speed)
-                print(f"⚠️ 轉速變化過大，限制為下限: {best_speed}%")
-            elif best_speed > max_allowed_speed:
-                best_speed = int(max_allowed_speed)
-                print(f"⚠️ 轉速變化過大，限制為上限: {best_speed}%")
+            print(f"🎯 溫度差異 {temp_diff:.1f}°C ≤ 0.5°C: 應用最大轉速變化限制 ±{max_change}%")
             
-            print(f"✅ 最佳化完成: 風扇轉速 = {best_speed}%, 最終成本 = {best_cost:.2f}")
-            return best_speed, best_cost
+        elif temp_diff <= 1.0:
+            # 在目標溫度正負0.5-1.0度之間：應用動態轉速下限，但允許較大變化
+            min_allowed_speed = dynamic_min_speed
+            max_allowed_speed = 100
+            
+            print(f"🎯 溫度差異 {temp_diff:.1f}°C 在0.5-1.0°C之間: 應用動態轉速下限 {dynamic_min_speed}%，允許到100%")
+            
         else:
-            return  best_speed, best_cost
+            # 大於目標溫度正負1度：轉速變動範圍為30到100
+            min_allowed_speed = 30
+            max_allowed_speed = 100
+            
+            print(f"🎯 溫度差異 {temp_diff:.1f}°C > 1.0°C: 轉速變動範圍為30-100%")
+        
+        # 限制最佳風扇轉速在允許範圍內
+        if best_speed < min_allowed_speed:
+            best_speed = int(min_allowed_speed)
+            print(f"⚠️ 轉速調整: {best_speed}% -> {min_allowed_speed}% (低於下限)")
+        elif best_speed > max_allowed_speed:
+            best_speed = int(max_allowed_speed)
+            print(f"⚠️ 轉速調整: {best_speed}% -> {max_allowed_speed}% (超過上限)")
+        
+        print(f"✅ 最佳化完成: 風扇轉速 = {best_speed}%, 最終成本 = {best_cost:.2f}")
+        print(f"📊 轉速範圍: {min_allowed_speed}% - {max_allowed_speed}%")
+        return best_speed, best_cost
 
     def plot_cost(self):
         """繪製成本歷史圖表"""
