@@ -145,6 +145,12 @@ class SA_Optimizer:
         self.max_speed_change = 10  # 最大轉速變化限制
         self.previous_fan_speed = None  # 前一次風扇轉速
         self.back_step = 10  # 回退步長
+
+        # 風扇轉速限制
+        self.default_speed = 30  # 預設轉速
+        self.min_speed = 30  # 最小轉速
+        self.max_speed = 100  # 最大轉速
+
         
         # 動態轉速下限控制參數
         # 觸發條件說明：
@@ -286,7 +292,6 @@ class SA_Optimizer:
         speed_energy = self.fan_speed_energy(fan_speed)
 
         # 只計算預測序列中所有溫度差
-
         temp_error = 0
         for i in predicted_temps:
             if abs(i - self.target_temp) > self.error_band:
@@ -295,9 +300,20 @@ class SA_Optimizer:
             else:
                 temp_error += 0
         
+        # 計算當前溫度與目標溫度的差值
+        temp_diff = current_temp - self.target_temp
+        
+        # 風扇轉速獎勵機制
+        speed_reward = 0
+        if temp_diff < -1:
+            # 當前溫度比目標溫度低1度以上，獎勵最低風扇轉速
+            speed_reward = -(self.max_speed - fan_speed) *0.7  # 越接近最低轉速，獎勵越大
+        elif temp_diff > 1:
+            # 當前溫度比目標溫度高1度以上，獎勵最高風扇轉速
+            speed_reward = -(fan_speed - self.min_speed) * 0.7  # 越接近最高轉速，獎勵越大
 
-        # 總成本
-        total_cost =self.w_temp * temp_error + self.w_energy * speed_energy 
+        # 總成本（加入速度獎勵，負值表示獎勵會降低總成本）
+        total_cost = self.w_temp * temp_error + self.w_energy * speed_energy + speed_reward
         
         return total_cost
 
@@ -312,6 +328,7 @@ class SA_Optimizer:
         """
         # 檢查是否在目標溫度正負1度範圍內（動態轉速下限觸發條件）
         if abs(current_temp - self.target_temp) <= 1:
+            '''''
             # 根據目標溫度計算轉速下限
             if self.target_temp <= 28:
                 # 目標溫度小於等於28度時，下限為65%
@@ -328,8 +345,8 @@ class SA_Optimizer:
                 speed_limit = 65 - (65 - 30) * (self.target_temp - 28) / (34 - 28)
                 dynamic_limit = max(30, min(65, int(speed_limit // 5 * 5)))  # 確保是5的倍數且在合理範圍內
                 print(f"🎯 動態轉速下限啟用: 目標溫度={self.target_temp}°C (28-34範圍), 當前溫度={current_temp:.1f}°C, 計算下限={dynamic_limit}%")
-            
-            return dynamic_limit
+            '''''
+            return 45
         else:
             # 不在正負1度範圍內，返回預設下限30%
             print(f"📊 溫度差異 {abs(current_temp - self.target_temp):.1f}°C > 1.0°C: 使用預設下限30%")
@@ -370,11 +387,11 @@ class SA_Optimizer:
         if current_temp is not None:
             min_speed = self.calculate_dynamic_speed_limit(current_temp)
         else:
-            min_speed = 30  # 預設最低轉速
+            min_speed = self.default_speed  # 預設最低轉速
         
         # 確保轉速值在有效範圍內（動態下限%-100%）
         # 並且結果為5的倍數（向下取整到最近的5的倍數）
-        new_speed = max(min_speed, min(100, new_speed))
+        new_speed = max(min_speed, min(self.max_speed, new_speed))
         new_speed = int(new_speed // self.base_step * self.base_step)  # 確保是5的倍數
         
         return int(new_speed)

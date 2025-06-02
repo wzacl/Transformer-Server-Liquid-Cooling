@@ -50,11 +50,11 @@ class GB_PID_fan:
         self.GB = Guaranteed_Bounded_PID_range
         self.sample_time = sample_time
         self.controller = PID(
-            Kp=-6,  # 調整比例增益
-            Ki=-0.08,  # 調整積分增益
+            Kp=-2,  # 調整比例增益
+            Ki=-0.2,  # 調整積分增益
             Kd=0,  # 添加微分項以改善響應
             setpoint=target,
-            output_limits=(40, 100),
+            output_limits=(30, 100),
             sample_time=sample_time
         )
         self.controller.setpoint = target
@@ -73,7 +73,7 @@ class GB_PID_fan:
         """
         delta = abs(T_real - target)
         if delta <= self.GB:
-            return target  # 當誤差在範圍內，返回目標溫度
+            return T_real  # 當誤差在範圍內，返回目標溫度
         else:
             return T_real  # 當誤差超出範圍，返回實際溫度
             
@@ -92,9 +92,9 @@ if __name__ == '__main__':
     fan2_port = '/dev/ttyAMA5'
     pump_port = '/dev/ttyAMA3'
     #資料儲存位置(不要動)
-    exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/PID_pump'
+    exp_name = '/home/inventec/Desktop/2KWCDU_修改版本/data_manage/PID_fan'
     #實驗檔案名稱(可自行更動)
-    exp_var = '250212PID-pump'
+    exp_var = '250602PID-fan'
     #修改自訂資料表頭，確保列數一致
     custom_headers = [
         'time', 
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     try:
         counter = 0
         flag = True
-        target = 68
+        target = 28
         sample_time = 1  # 定義取樣時間
         Guaranteed_Bounded_PID_range = 0.5
         Controller = GB_PID_fan( target, Guaranteed_Bounded_PID_range, sample_time)
@@ -147,14 +147,14 @@ if __name__ == '__main__':
                 T_CDU_out = Temperatures[3]
                 T_env = Temperatures[4]
                 
-                print(f"T_GPU: {T_GPU} | T_CDU_out: {T_CDU_out} | T_env: {T_env}")
-                print(f"counter: {counter} | pump speed: {pump_duty}")
-                print("----------------------------------------")
+
 
                 # 使用 GB_PID 計算控制輸出
                 control_temp = Controller.GB_PID(T_CDU_out, target)
                 fan_duty = round(Controller.controller(control_temp)/10)*10
-                    
+                print(f"T_GPU: {T_GPU} | T_CDU_out: {T_CDU_out} | T_env: {T_env}")
+                print(f"counter: {counter} | fan speed: {fan_duty}")
+                print("----------------------------------------")
                 # 更新泵的轉速
                 fan1.set_all_duty_cycle(fan_duty)
                 fan2.set_all_duty_cycle(fan_duty)

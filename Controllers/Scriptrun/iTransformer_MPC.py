@@ -3,6 +3,15 @@
 
 此模組實現了基於模型預測控制(MPC)的冷卻系統控制器，用於管理GPU冷卻系統的風扇和泵的速度。
 系統使用模擬退火算法優化風扇速度，並使用PID控制器管理泵速。
+
+本研究中的晶片瓦數對應的電源供應器參數設置如下：
+    1.3KW：260V_8A
+    1.5KW：285V_8A
+    1.9KW：330V_8A
+
+對應的風扇與泵最低轉速如下：
+    泵：40% duty cycle
+    風扇：30% duty cycle
 """
 import sys
 import os
@@ -220,7 +229,7 @@ class ControlParameters:
                  p_max: float = 100,
                  gpu_target: float = 71,
                  target_temp: float = 30,
-                 control_frequency: int = 6,
+                 control_frequency: int = 4,
                  initial_fan_duty: float = 60,
                  initial_pump_duty: float = 60):
         self.p_max = p_max
@@ -679,7 +688,7 @@ class CoolingSystemController:
             scaler_path=model_config.scaler_path
         )
         
-        self.pump_controller = Pump_pid.GB_PID_pump(
+        self.pump_controller = Pump_pid(
             target=control_params.gpu_target,
             Guaranteed_Bounded_PID_range=0.5,
             sample_time=1
@@ -851,7 +860,7 @@ class CoolingSystemController:
             # 觸發優化的條件：
             # 1. 當前誤差超過閾值 (0.5°C)
             # 2. 或者溫度趨勢變差（當前誤差比過去誤差大）
-            should_optimize = (current_error > 0.5) or (current_error > past_error)
+            should_optimize = (current_error > 0.7) or (current_error > past_error) 
             
             if should_optimize:
                 self.display.display_fan_optimization()
@@ -892,6 +901,7 @@ class CoolingSystemController:
                 else:
                     print('優化器未返回有效解')
             else:
+
                 print('目前的解已為最優解，不進行優化')
             
             # 更新過去溫度記錄
@@ -962,7 +972,7 @@ if __name__ == "__main__":
             scaler_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/scalers.jlib",
             model_path="/home/inventec/Desktop/2KWCDU_修改版本/code_manage/Predict_Model/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140/best_model.pth",
             exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_MPC_SA_data/iTransformer/iTransformer_no_air_out_seq25_pred8_dmodel16_dff32_nheads2_elayers1_dropout0.01_lr0.0001_batchsize512_epochs140",
-            exp_var="Fan_MPC_data_feedback_v2_f6_dynamic_limit_power_test",
+            exp_var="Fan_MPC_data_feedback_v2_f4_var_power_test_5",
         )
         control_params = ControlParameters()
 
@@ -977,8 +987,8 @@ if __name__ == "__main__":
         # 測試實驗模式 (若需要測試，取消以下註釋)
         controller.start_experiment_mode(
             period=240,  # 5分鐘變化一次
-            gpu_targets=[70,72,70,72],
-            system_targets=[28,31,28,31]
+            gpu_targets=[70,70,70,70],
+            system_targets=[29,29,29,29]
         )
          
         controller.run() 

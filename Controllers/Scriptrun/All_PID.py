@@ -11,12 +11,16 @@ import os
 # 獲取目前檔案 (All_PID.py) 的絕對路徑
 _current_file_path = os.path.abspath(__file__)
 # 導航到專案根目錄 (2KWCDU_修改版本)
-# .../code_manage/Controllers/MPC/iTransformer_MPC.py -> .../2KWCDU_修改版本/
 _project_root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_current_file_path))))
+# 導航到 code_manage 目錄
+_code_manage_dir = os.path.join(_project_root_dir, 'code_manage')
 
 # 如果專案根目錄不在 sys.path 中，則將其加入到最前面
 if _project_root_dir not in sys.path:
     sys.path.insert(0, _project_root_dir)
+# 如果 code_manage 目錄不在 sys.path 中，則將其加入到最前面
+if _code_manage_dir not in sys.path:
+    sys.path.insert(0, _code_manage_dir)
 # -- 新增的 sys.path 修改結束 --
 
 import time
@@ -598,16 +602,16 @@ class CoolingSystemController:
         self.experiment_mode = ExperimentMode(control_params)
         
         # 初始化PID控制器
-        self.pump_controller = Pump_pid.GB_PID_pump(
+        self.pump_controller = Pump_pid(
             target=control_params.gpu_target,
             Guaranteed_Bounded_PID_range=0.5,
             sample_time=1
         )
         
-        self.fan_controller = Fan_pid.GB_PID_fan(
+        self.fan_controller = Fan_pid(
             target=control_params.target_temp,
             Guaranteed_Bounded_PID_range=0.5,
-            sample_time=1
+            sample_time=3
         )
 
         # 狀態追蹤
@@ -618,7 +622,9 @@ class CoolingSystemController:
             'pump_duty': None
         }
         
-
+        # 風扇控制時間追蹤
+        self.last_fan_control_time = 0
+        self.fan_control_interval = 4.0  # 4秒間隔
         
         self.counter = 0
         self.running = True
@@ -763,38 +769,52 @@ class CoolingSystemController:
         # 顯示控制策略
         self.display.display_control_strategy(control_temp, self.control_params.gpu_target, self.control_params.target_temp)
 
-        # 執行風扇控制
-        # 獲取CDU出水溫度
-        current_cdu_temp = temps_data['T_CDU_out']
+        # 執行風扇控制（每3秒執行一次）
+        current_time = time.time()
+        should_update_fan = (current_time - self.last_fan_control_time) >= self.fan_control_interval
         
-        # 使用PID控制器計算風扇控制輸出
-        fan_control_temp = self.fan_controller.GB_PID(
-            current_cdu_temp,
-            self.control_params.target_temp
-        )
-        
-        # 計算新的風扇轉速
-        new_fan_duty = round(
-            self.fan_controller.controller(fan_control_temp) / 5
-        ) * 5
-        
-        # 限制風扇轉速範圍
-        new_fan_duty = max(30, min(100, new_fan_duty))
-        
-        # 計算風扇變化量
-        fan_change = new_fan_duty - temps_data['fan_duty']
-        
-        # 顯示風扇控制狀態
-        print(f"\n{self.display.Colors.YELLOW}🌀 風扇PID控制{self.display.Colors.RESET}")
-        print(f"   當前CDU出水溫度: {current_cdu_temp:.1f}°C")
-        print(f"   目標溫度: {self.control_params.target_temp}°C")
-        print(f"   溫度誤差: {abs(current_cdu_temp - self.control_params.target_temp):.1f}°C")
-        print(f"   風扇轉速調整: {temps_data['fan_duty']}% → {new_fan_duty}% ({'+' if fan_change > 0 else '-' if fan_change < 0 else '='}{abs(fan_change)}%)")
-        
-        # 更新風扇設定
-        self.hardware.fan1.set_all_duty_cycle(int(new_fan_duty))
-        self.hardware.fan2.set_all_duty_cycle(int(new_fan_duty))
-        self.hardware.adam.update_duty_cycles(fan_duty=int(new_fan_duty))
+        if should_update_fan:
+            # 獲取CDU出水溫度
+            current_cdu_temp = temps_data['T_CDU_out']
+            
+            # 使用PID控制器計算風扇控制輸出
+            fan_control_temp = self.fan_controller.GB_PID(
+                current_cdu_temp,
+                self.control_params.target_temp
+            )
+            
+            # 計算新的風扇轉速
+            new_fan_duty = round(
+                self.fan_controller.controller(fan_control_temp) / 5
+            ) * 5
+            
+            # 限制風扇轉速範圍
+            new_fan_duty = max(30, min(100, new_fan_duty))
+            
+            # 計算風扇變化量
+            fan_change = new_fan_duty - temps_data['fan_duty']
+            
+            # 顯示風扇控制狀態
+            print(f"\n{self.display.Colors.YELLOW}🌀 風扇PID控制 (3秒間隔){self.display.Colors.RESET}")
+            print(f"   當前CDU出水溫度: {current_cdu_temp:.1f}°C")
+            print(f"   目標溫度: {self.control_params.target_temp}°C")
+            print(f"   溫度誤差: {abs(current_cdu_temp - self.control_params.target_temp):.1f}°C")
+            print(f"   風扇轉速調整: {temps_data['fan_duty']}% → {new_fan_duty}% ({'+' if fan_change > 0 else '-' if fan_change < 0 else '='}{abs(fan_change)}%)")
+            print(f"   距離上次更新: {current_time - self.last_fan_control_time:.1f}秒")
+            
+            # 更新風扇設定
+            self.hardware.fan1.set_all_duty_cycle(int(new_fan_duty))
+            self.hardware.fan2.set_all_duty_cycle(int(new_fan_duty))
+            self.hardware.adam.update_duty_cycles(fan_duty=int(new_fan_duty))
+            
+            # 更新最後控制時間
+            self.last_fan_control_time = current_time
+        else:
+            # 顯示等待狀態
+            remaining_time = self.fan_control_interval - (current_time - self.last_fan_control_time)
+            print(f"\n{self.display.Colors.YELLOW}🌀 風扇控制等待中{self.display.Colors.RESET}")
+            print(f"   下次更新還需: {remaining_time:.1f}秒")
+            print(f"   當前風扇轉速: {temps_data['fan_duty']}%")
         
         # 顯示控制選項
         self.display.display_control_options(
@@ -802,7 +822,7 @@ class CoolingSystemController:
             self.control_params.target_temp,
             self.experiment_mode.enabled
         )
-        
+
         self.counter += 1
 
     def _get_temperatures(self) -> Dict[str, float]:
@@ -835,7 +855,7 @@ if __name__ == "__main__":
             scaler_path="/path/to/scaler.jlib",  # 僅為兼容性保留，PID控制不需要
             model_path="/path/to/model.pth",    # 僅為兼容性保留，PID控制不需要
             exp_name="/home/inventec/Desktop/2KWCDU_修改版本/data_manage/control_data/Fan_PID_data",
-            exp_var="Fan_PID_control_data",
+            exp_var="all_PID_control_power_test_5",
         )
         control_params = ControlParameters()
 
@@ -849,9 +869,9 @@ if __name__ == "__main__":
         
         # 測試實驗模式 
         controller.start_experiment_mode(
-            period=400,  # 5分鐘變化一次
-            gpu_targets=[70,72,70,72],
-            system_targets=[28,30,28,30]
+            period=240,  # 5分鐘變化一次
+            gpu_targets=[70,70,70,70],
+            system_targets=[29,29,29,29]
         )
          
         controller.run() 
